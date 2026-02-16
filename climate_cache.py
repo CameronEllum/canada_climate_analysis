@@ -1,4 +1,4 @@
-"""SQLite caching for climate data."""
+"""SQLite caching for climate data with optimized schema."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Final
 
 import polars as pl
 
-CACHE_DB: Final[str] = "climate_cache.sq3"
+CACHE_DB: Final[str] = "climate_cache_new.sq3"
 
 DAILY_SCHEMA: Final[dict[str, Any]] = {
     "station_id": pl.String,
@@ -24,53 +24,87 @@ DAILY_SCHEMA: Final[dict[str, Any]] = {
 
 
 class ClimateCache:
-    """Manages SQLite caching for daily climate data."""
+    """Manages SQLite caching for daily climate data with optimized storage."""
 
     def __init__(self, db_path: str = CACHE_DB) -> None:
         self.db_path = db_path
         self._init_db()
 
     def _init_db(self) -> None:
-        """Initialize SQLite schema."""
+        """Initialize SQLite schema using optimized types."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS stations (
-                    id TEXT PRIMARY KEY,
+                    key INTEGER PRIMARY KEY AUTOINCREMENT,
+                    station_id TEXT UNIQUE,
                     name TEXT,
                     latitude REAL,
-                    longitude REAL,
-                    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    longitude REAL
                 )
                 """
             )
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS daily_data (
-                    station_id TEXT,
-                    date TEXT,
-                    year INTEGER,
-                    month INTEGER,
-                    day INTEGER,
-                    temp_mean REAL,
-                    temp_min REAL,
-                    temp_max REAL,
-                    precip REAL,
-                    PRIMARY KEY (station_id, date)
-                )
+                    station_key INTEGER,
+                    date INTEGER, -- YYYYMMDD
+                    temp_mean INTEGER, -- Scaled by 10
+                    temp_min INTEGER, -- Scaled by 10
+                    temp_max INTEGER, -- Scaled by 10
+                    precip INTEGER, -- Scaled by 10
+                    PRIMARY KEY (station_key, date)
+                ) WITHOUT ROWID
                 """
             )
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS station_requests (
-                    station_id TEXT,
-                    start_date TEXT,
-                    end_date TEXT,
+                    station_key INTEGER,
+                    start_date INTEGER,
+                    end_date INTEGER,
                     status TEXT,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 """
             )
+
+    def _get_station_key(
+        self, conn: sqlite3.Connection, station_id: str
+    ) -> int | None:
+        """Lookup internal integer key for a station ID."""
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT key FROM stations WHERE station_id = ?", (station_id,)
+        )
+        row = cursor.fetchone()
+        return row[0] if row else None
+
+    def _date_to_int(self, date_str: str | None) -> int | None:
+        """Convert ISO date string to YYYYMMDD integer."""
+        if not date_str or not isinstance(date_str, str):
+            return None
+        try:
+            # Robust parsing (handles "YYYY-MM-DD", "YYYY-MM-DD HH:MM:SS", etc.)
+            clean = date_str.split(" ")[0].split("T")[0]
+            clean = clean.replace("-", "").replace("/", "").replace(".", "")
+            if len(clean) < 8:
+                return None
+            return int(clean[:8])
+        except ValueError, TypeError, IndexError:
+            return None
+
+    def _int_to_date_components(
+        self, date_int: int | None
+    ) -> tuple[str, int, int, int] | tuple[None, None, None, None]:
+        """Convert YYYYMMDD integer to (ISO string, year, month, day)."""
+        if date_int is None:
+            return None, None, None, None
+        s = str(date_int)
+        if len(s) != 8:
+            return None, None, None, None
+        y, m, d = int(s[:4]), int(s[4:6]), int(s[6:])
+        return f"{y:04d}-{m:02d}-{d:02d}", y, m, d
 
     def save_stations(self, df: pl.DataFrame) -> None:
         """Save station metadata to cache."""
@@ -78,13 +112,12 @@ class ClimateCache:
             for row in df.iter_rows(named=True):
                 conn.execute(
                     """
-                    INSERT INTO stations (id, name, latitude, longitude)
+                    INSERT INTO stations (station_id, name, latitude, longitude)
                     VALUES (?, ?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET
+                    ON CONFLICT(station_id) DO UPDATE SET
                         name=excluded.name,
                         latitude=excluded.latitude,
-                        longitude=excluded.longitude,
-                        last_seen=CURRENT_TIMESTAMP
+                        longitude=excluded.longitude
                     """,
                     (
                         row["id"],
@@ -101,32 +134,41 @@ class ClimateCache:
         end_year: int,
     ) -> pl.DataFrame:
         """Retrieve cached daily records for a station."""
-        query = """
-            SELECT station_id, date, year, month, day,
-                   temp_mean, temp_min, temp_max, precip
-            FROM daily_data
-            WHERE station_id = ? AND year BETWEEN ? AND ?
-        """
         with sqlite3.connect(self.db_path) as conn:
+            s_key = self._get_station_key(conn, station_id)
+            if s_key is None:
+                return pl.DataFrame(schema=DAILY_SCHEMA)
+
+            query = """
+                SELECT date, temp_mean, temp_min, temp_max, precip
+                FROM daily_data
+                WHERE station_key = ? AND date BETWEEN ? AND ?
+            """
+            # start_year to YYYYMMDD
+            s_date = start_year * 10000 + 101
+            e_date = end_year * 10000 + 1231
+
             cursor = conn.cursor()
-            cursor.execute(query, (station_id, start_year, end_year))
+            cursor.execute(query, (s_key, s_date, e_date))
             rows = cursor.fetchall()
             if not rows:
                 return pl.DataFrame(schema=DAILY_SCHEMA)
 
             data = []
             for r in rows:
+                d_int = r[0]
+                d_str, y, m, d = self._int_to_date_components(d_int)
                 data.append(
                     {
-                        "station_id": r[0],
-                        "date": r[1],
-                        "year": r[2],
-                        "month": r[3],
-                        "day": r[4],
-                        "temp_mean": r[5],
-                        "temp_min": r[6],
-                        "temp_max": r[7],
-                        "precip": r[8],
+                        "station_id": station_id,
+                        "date": d_str,
+                        "year": y,
+                        "month": m,
+                        "day": d,
+                        "temp_mean": r[1] / 10.0 if r[1] is not None else None,
+                        "temp_min": r[2] / 10.0 if r[2] is not None else None,
+                        "temp_max": r[3] / 10.0 if r[3] is not None else None,
+                        "precip": r[4] / 10.0 if r[4] is not None else None,
                     }
                 )
             return pl.from_dicts(data, schema=DAILY_SCHEMA)
@@ -138,14 +180,24 @@ class ClimateCache:
         end_date: str,
     ) -> set[str]:
         """Get set of dates already in the database for a station/range."""
-        query = """
-            SELECT date FROM daily_data
-            WHERE station_id = ? AND date BETWEEN ? AND ?
-        """
         with sqlite3.connect(self.db_path) as conn:
+            s_key = self._get_station_key(conn, station_id)
+            if s_key is None:
+                return set()
+
+            s_date_int = self._date_to_int(start_date)
+            e_date_int = self._date_to_int(end_date)
+
+            query = """
+                SELECT date FROM daily_data
+                WHERE station_key = ? AND date BETWEEN ? AND ?
+            """
             cursor = conn.cursor()
-            cursor.execute(query, (station_id, start_date, end_date))
-            return {r[0] for r in cursor.fetchall()}
+            cursor.execute(query, (s_key, s_date_int, e_date_int))
+            # Convert back to ISO string if needed by MSCClient
+            return {
+                self._int_to_date_components(r[0])[0] for r in cursor.fetchall()
+            }
 
     def log_station_request(
         self,
@@ -154,56 +206,105 @@ class ClimateCache:
         end_date: str,
         status: str,
     ) -> None:
-        """Log a successful fetch request to skip future redundant checks."""
-        query = """
-            INSERT INTO station_requests
-            (station_id, start_date, end_date, status)
-            VALUES (?, ?, ?, ?)
-        """
+        """Log a successful fetch request."""
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute(query, (station_id, start_date, end_date, status))
+            s_key = self._get_station_key(conn, station_id)
+            if s_key is None:
+                return
+
+            query = """
+                INSERT INTO station_requests
+                (station_key, start_date, end_date, status)
+                VALUES (?, ?, ?, ?)
+            """
+            conn.execute(
+                query,
+                (
+                    s_key,
+                    self._date_to_int(start_date),
+                    self._date_to_int(end_date),
+                    status,
+                ),
+            )
 
     def get_station_requests(
         self, station_id: str
     ) -> list[tuple[str, str, str]]:
         """Get past request ranges for a station."""
-        query = """
-            SELECT start_date, end_date, status
-            FROM station_requests
-            WHERE station_id = ?
-        """
         with sqlite3.connect(self.db_path) as conn:
+            s_key = self._get_station_key(conn, station_id)
+            if s_key is None:
+                return []
+
+            query = """
+                SELECT start_date, end_date, status
+                FROM station_requests
+                WHERE station_key = ?
+            """
             cursor = conn.cursor()
-            cursor.execute(query, (station_id,))
-            return cursor.fetchall()
+            cursor.execute(query, (s_key,))
+            results = []
+            for r in cursor.fetchall():
+                # Convert back to ISO strings for MSCClient comparison logic
+                s_str = self._int_to_date_components(r[0])[0]
+                e_str = self._int_to_date_components(r[1])[0]
+                results.append((s_str, e_str, r[2]))
+            return results
 
     def save_daily(self, df: pl.DataFrame) -> None:
-        """Save daily observations to cache."""
+        """Save daily observations to cache using scaling."""
         if df.is_empty():
             return
+
         with sqlite3.connect(self.db_path) as conn:
-            for row in df.iter_rows(named=True):
-                conn.execute(
+            # Group by station to minimize lookups.
+            # Note: Polars group_by iteration returns (key_tuple, group_df)
+            for key_tuple, group in df.group_by("station_id"):
+                sid = (
+                    key_tuple[0] if isinstance(key_tuple, tuple) else key_tuple
+                )
+                s_key = self._get_station_key(conn, sid)  # type: ignore
+                if s_key is None:
+                    continue
+
+                rows_to_insert = []
+                for row in group.iter_rows(named=True):
+                    d_int = self._date_to_int(row["date"])
+                    t_mean = (
+                        int(round(row["temp_mean"] * 10))
+                        if row["temp_mean"] is not None
+                        else None
+                    )
+                    t_min = (
+                        int(round(row["temp_min"] * 10))
+                        if row["temp_min"] is not None
+                        else None
+                    )
+                    t_max = (
+                        int(round(row["temp_max"] * 10))
+                        if row["temp_max"] is not None
+                        else None
+                    )
+                    precip = (
+                        int(round(row["precip"] * 10))
+                        if row["precip"] is not None
+                        else None
+                    )
+
+                    rows_to_insert.append(
+                        (s_key, d_int, t_mean, t_min, t_max, precip)
+                    )
+
+                conn.executemany(
                     """
                     INSERT INTO daily_data
-                    (station_id, date, year, month, day,
-                     temp_mean, temp_min, temp_max, precip)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(station_id, date) DO UPDATE SET
+                    (station_key, date, temp_mean, temp_min, temp_max, precip)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(station_key, date) DO UPDATE SET
                         temp_mean=excluded.temp_mean,
                         temp_min=excluded.temp_min,
                         temp_max=excluded.temp_max,
                         precip=excluded.precip
                     """,
-                    (
-                        row["station_id"],
-                        row["date"],
-                        row["year"],
-                        row["month"],
-                        row["day"],
-                        row["temp_mean"],
-                        row["temp_min"],
-                        row["temp_max"],
-                        row["precip"],
-                    ),
+                    rows_to_insert,
                 )

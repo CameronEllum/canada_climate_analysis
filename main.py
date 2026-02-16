@@ -69,6 +69,12 @@ logger = logging.getLogger(__name__)
     "--yearly", "period", flag_value="yearly", help="Aggregate by year"
 )
 @click.option(
+    "--cache",
+    "cache_path",
+    default="climate_cache_new.sq3",
+    help="Path to SQLite cache (default: climate_cache_new.sq3)",
+)
+@click.option(
     "--cache-requests/--no-cache-requests",
     default=False,
     help="Enable HTTP requests caching (default: False)",
@@ -84,13 +90,14 @@ def main(
     max_temp: bool,
     min_temp: bool,
     period: str,
+    cache_path: str,
     cache_requests: bool,
 ) -> None:
     """Generate climate analysis report for multiple locations."""
     if end_year is None:
         end_year = datetime.datetime.now().year
 
-    cache = ClimateCache()
+    cache = ClimateCache(cache_path)
     client = MSCClient(cache, cache_requests=cache_requests)
 
     all_stations_dfs = []
