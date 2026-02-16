@@ -121,7 +121,7 @@ def _create_shading_trace(
         line=dict(color="rgba(0,0,0,0)"),
         name="Std Dev (Trend-rel.)",
         visible=(month_idx == 1 and shade_deviation),
-        showlegend=(month_idx == 1 and shade_deviation),
+        showlegend=shade_deviation,
         hoverinfo="skip",
     )
 
@@ -140,7 +140,7 @@ def _create_trend_trace(
         name="Linear Trend",
         visible=(month_idx == 1 and show_trend),
         line=dict(width=1, color="red"),
-        showlegend=(month_idx == 1 and show_trend),
+        showlegend=show_trend,
         hoverinfo="skip",
     )
 
@@ -259,7 +259,7 @@ def create_temperature_plot(
                     "<b>Year: %{x}</b><br>Mean: %{y:.1f}°C<br>"
                     "Median: %{customdata[5]:.1f}°C<br>"
                     "Trend Mean: %{customdata[6]:.1f}°C<br>"
-                    "Anomaly: %{customdata[4]:.1f}°C<br>"
+                    "Mean Anomaly: %{customdata[4]:.1f}°C<br>"
                     "Minimum: %{customdata[2]:.1f}°C<br>"
                     "Maximum: %{customdata[3]:.1f}°C<br>"
                     "25th Percentile: %{customdata[0]:.1f}°C<br>"
@@ -376,7 +376,7 @@ def create_precipitation_plot(
                     "<b>Year: %{x}</b><br>Total: %{y:.1f} mm<br>"
                     "Median: %{customdata[5]:.1f} mm<br>"
                     "Trend Mean: %{customdata[6]:.1f} mm<br>"
-                    "Anomaly: %{customdata[4]:.1f} mm<br>"
+                    "Mean Anomaly: %{customdata[4]:.1f} mm<br>"
                     "Minimum: %{customdata[2]:.1f} mm<br>"
                     "Maximum: %{customdata[3]:.1f} mm<br>"
                     "25th Percentile: %{customdata[0]:.1f} mm<br>"
