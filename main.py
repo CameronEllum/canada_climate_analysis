@@ -8,6 +8,7 @@ from __future__ import annotations
 import datetime
 import logging
 import sys
+from pathlib import Path
 
 import click
 import polars as pl
@@ -156,15 +157,25 @@ def main(
         period=period,
     )
 
-    # Filename based on first location or 'multi'
-    base_name = normalized_locations[0].split(",")[0].lower().replace(" ", "_")
-    if len(normalized_locations) > 1:
-        base_name += "_and_others"
+    # Create reports directory if it doesn't exist
+    reports_dir = Path("reports")
+    reports_dir.mkdir(exist_ok=True)
 
-    fname = f"climate_report_{base_name}.html"
-    with open(fname, "w", encoding="utf-8") as f:
+    # Determine year range for filename
+    effective_end_year = end_year or daily_df["year"].max()
+    year_range = f"{start_year}-{effective_end_year}"
+
+    # Filename based on period, year range, and location(s)
+    loc_part = normalized_locations[0].split(",")[0].lower().replace(" ", "_")
+    if len(normalized_locations) > 1:
+        loc_part += "_and_others"
+
+    fname = f"climate_report_{period}_{year_range}_{loc_part}.html"
+    fpath = reports_dir / fname
+
+    with open(fpath, "w", encoding="utf-8") as f:
         f.write(report)
-    logger.info(f"Report: {fname}")
+    logger.info(f"Report: {fpath}")
 
 
 if __name__ == "__main__":
