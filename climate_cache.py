@@ -60,6 +60,17 @@ class ClimateCache:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS station_requests (
+                    station_id TEXT,
+                    start_date TEXT,
+                    end_date TEXT,
+                    status TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
 
     def save_stations(self, df: pl.DataFrame) -> None:
         """Save station metadata to cache."""
@@ -119,6 +130,52 @@ class ClimateCache:
                     }
                 )
             return pl.from_dicts(data, schema=DAILY_SCHEMA)
+
+    def get_existing_dates(
+        self,
+        station_id: str,
+        start_date: str,
+        end_date: str,
+    ) -> set[str]:
+        """Get set of dates already in the database for a station/range."""
+        query = """
+            SELECT date FROM daily_data
+            WHERE station_id = ? AND date BETWEEN ? AND ?
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (station_id, start_date, end_date))
+            return {r[0] for r in cursor.fetchall()}
+
+    def log_station_request(
+        self,
+        station_id: str,
+        start_date: str,
+        end_date: str,
+        status: str,
+    ) -> None:
+        """Log a successful fetch request to skip future redundant checks."""
+        query = """
+            INSERT INTO station_requests
+            (station_id, start_date, end_date, status)
+            VALUES (?, ?, ?, ?)
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(query, (station_id, start_date, end_date, status))
+
+    def get_station_requests(
+        self, station_id: str
+    ) -> list[tuple[str, str, str]]:
+        """Get past request ranges for a station."""
+        query = """
+            SELECT start_date, end_date, status
+            FROM station_requests
+            WHERE station_id = ?
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (station_id,))
+            return cursor.fetchall()
 
     def save_daily(self, df: pl.DataFrame) -> None:
         """Save daily observations to cache."""

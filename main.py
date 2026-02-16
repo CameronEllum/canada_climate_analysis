@@ -27,8 +27,8 @@ logger = logging.getLogger(__name__)
 @click.command()
 @click.option("--location", required=True, help="Location name")
 @click.option("--radius", default=100.0, help="Radius (km)")
-@click.option("--start-year", default=1900, help="Start year")
-@click.option("--end_year", default=None, help="End year")
+@click.option("--start-year", default=1900, type=int, help="Start year")
+@click.option("--end_year", default=None, type=int, help="End year")
 @click.option("--trend/--no-trend", default=True, help="Show trendlines")
 @click.option(
     "--std-dev/--no-std-dev", default=False, help="Shade standard deviation"
@@ -50,6 +50,11 @@ logger = logging.getLogger(__name__)
     default=False,
     help="Use minimum daily temperature (default: False)",
 )
+@click.option(
+    "--cache-requests/--no-cache-requests",
+    default=False,
+    help="Enable HTTP requests caching (default: False)",
+)
 def main(
     location: str,
     radius: float,
@@ -60,13 +65,14 @@ def main(
     show_anomaly: bool,
     max_temp: bool,
     min_temp: bool,
+    cache_requests: bool,
 ) -> None:
     """Generate climate analysis report for a location."""
     if end_year is None:
         end_year = datetime.datetime.now().year
 
     cache = ClimateCache()
-    client = MSCClient(cache)
+    client = MSCClient(cache, cache_requests=cache_requests)
 
     coords = client.get_coordinates(location)
     if not coords:
