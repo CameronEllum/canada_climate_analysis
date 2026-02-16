@@ -336,7 +336,6 @@ def create_modern_theme(fig: go.Figure) -> None:
         paper_bgcolor="white",
         font_family="Inter, sans-serif",
         font_size=12,
-        margin=dict(l=60, r=40, t=100, b=60),
         xaxis=dict(
             showgrid=True,
             gridcolor="#f0f0f0",
@@ -379,6 +378,8 @@ def generate_report(
     location_name: str,
     radius: float,
     show_trend: bool = False,
+    shade_deviation: bool = False,
+    show_anomaly: bool = True,
 ) -> str:
     """Aggregate daily data to monthly and generate HTML report."""
 
@@ -398,7 +399,6 @@ def generate_report(
 
     max_year = daily_df["year"].max()
 
-    # Station data for map
     range_df = daily_df.group_by("station_id").agg(
         [
             pl.col("year").min().alias("min_y"),
@@ -428,12 +428,12 @@ def generate_report(
         "December",
     ]
 
-    traces_per_month = 3 if show_trend else 2
+    # Trace count: 0:Dev, 1:Range, 2:Trend, 3:Main
+    traces_per_month = 4
 
-    # Temperature Chart
+    # 1. Temperature Chart
     fig_temp = go.Figure()
     for m_idx in range(1, 13):
-        m_name = months[m_idx - 1]
         m_df = monthly_df.filter(pl.col("month") == m_idx).sort("year")
 
         stats = None
@@ -451,36 +451,44 @@ def generate_report(
                 )
                 .sort("year")
             )
+            lt_mean = stats["avg"].mean()
+            stats = stats.with_columns(anomaly=pl.col("avg") - lt_mean)
 
         x = stats["year"].to_list() if stats is not None else []
         y = stats["avg"].to_list() if stats is not None else []
+        anom_list = stats["anomaly"].to_list() if stats is not None else []
         c_data = (
-            stats[["q1", "q3", "min", "max"]].rows()
+            stats[["q1", "q3", "min", "max", "anomaly"]].rows()
             if stats is not None
             else []
         )
 
+        # Trace 0: Shading (Trend-Relative)
+        y_upper, y_lower = [], []
+        if stats is not None:
+            x_vals = [float(xi) for xi in x]
+            trend_y = calculate_trendline(x_vals, y)
+            if trend_y:
+                resids = [yi - tyi for yi, tyi in zip(y, trend_y)]
+                std_resid = (sum(r**2 for r in resids) / len(resids)) ** 0.5
+                y_upper = [ty + std_resid for ty in trend_y]
+                y_lower = [ty - std_resid for ty in trend_y]
+
         fig_temp.add_trace(
             go.Scatter(
-                x=x,
-                y=y,
-                customdata=c_data,
-                mode="lines+markers",
-                name=m_name,
-                visible=(m_idx == 1),
-                marker=dict(size=5, color="#2c3e50"),
-                line=dict(width=1.5, color="#2c3e50"),
-                hovertemplate=(
-                    "<b>Year: %{x}</b><br>Mean: %{y:.1f}°C<br>"
-                    "Q1: %{customdata[0]:.1f}°C<br>"
-                    "Q3: %{customdata[1]:.1f}°C<br>"
-                    "Min: %{customdata[2]:.1f}°C<br>"
-                    "Max: %{customdata[3]:.1f}°C<br>"
-                    "<extra></extra>"
-                ),
+                x=x + x[::-1],
+                y=y_upper + y_lower[::-1],
+                fill="toself",
+                fillcolor="rgba(200, 200, 200, 0.15)",
+                line=dict(color="rgba(0,0,0,0)"),
+                name="Std Dev (Trend-rel.)",
+                visible=(m_idx == 1 and shade_deviation),
+                showlegend=(m_idx == 1 and shade_deviation),
+                hoverinfo="skip",
             )
         )
 
+        # Trace 1: Q1/Q3 Range
         q3 = stats["q3"] if stats is not None else []
         q1 = stats["q1"] if stats is not None else []
         avg = stats["avg"] if stats is not None else []
@@ -489,7 +497,7 @@ def generate_report(
                 x=x,
                 y=y,
                 mode="markers",
-                name=f"{m_name} Range",
+                name="Spread (Q1-Q3)",
                 visible=(m_idx == 1),
                 marker=dict(size=0),
                 error_y=dict(
@@ -500,32 +508,73 @@ def generate_report(
                     if stats is not None
                     else [],
                     width=0,
-                    thickness=1.5,
-                    color="rgba(44, 62, 80, 0.4)",
+                    thickness=1,
+                    color="rgba(0, 0, 0, 0.15)",
                 ),
-                showlegend=False,
+                showlegend=(m_idx == 1),
                 hoverinfo="skip",
             )
         )
 
-        if show_trend:
-            trend = calculate_trendline([float(xi) for xi in x], y)
-            fig_temp.add_trace(
-                go.Scatter(
-                    x=x,
-                    y=trend if trend else [],
-                    mode="lines",
-                    name=f"{m_name} Trend",
-                    visible=(m_idx == 1),
-                    line=dict(width=2, color="#e74c3c", dash="dash"),
-                    hoverinfo="skip",
-                )
+        # Trace 2: Trendline
+        x_vals = [float(xi) for xi in x]
+        trend_y = calculate_trendline(x_vals, y) if stats is not None else None
+        fig_temp.add_trace(
+            go.Scatter(
+                x=x,
+                y=trend_y if trend_y else [],
+                mode="lines",
+                name="Linear Trend",
+                visible=(m_idx == 1 and show_trend),
+                line=dict(width=2.5, color="#e74c3c", dash="dash"),
+                showlegend=(m_idx == 1 and show_trend),
+                hoverinfo="skip",
             )
+        )
+
+        # Trace 3: Main Data
+        m_color = anom_list if show_anomaly else "#2c3e50"
+        m_cscale = "RdBu_r" if show_anomaly else None
+        fig_temp.add_trace(
+            go.Scatter(
+                x=x,
+                y=y,
+                customdata=c_data,
+                mode="lines+markers",
+                name="Observations",
+                visible=(m_idx == 1),
+                marker=dict(
+                    size=8,
+                    color=m_color,
+                    colorscale=m_cscale,
+                    cmid=0,
+                    line=dict(width=1, color="white"),
+                    colorbar=(
+                        dict(title="Anomaly (°C)", x=1.05, thickness=12)
+                        if (m_idx == 1 and show_anomaly)
+                        else None
+                    ),
+                ),
+                line=dict(width=1, color="rgba(0,0,0,0.2)"),
+                showlegend=(m_idx == 1),
+                hovertemplate=(
+                    "<b>Year: %{x}</b><br>Mean: %{y:.1f}°C<br>"
+                    "Anomaly: %{customdata[4]:+.1f}°C<br>"
+                    "Q1: %{customdata[0]:.1f}°C<br>"
+                    "Q3: %{customdata[1]:.1f}°C<br>"
+                    "<extra></extra>"
+                ),
+            )
+        )
 
     fig_temp.update_layout(
         title=dict(
-            text="Monthly Temperatures Summary", x=0.5, y=0.95, xanchor="center"
+            text="Monthly Temperature Analysis", x=0.5, y=0.96, xanchor="center"
         ),
+        legend=dict(
+            orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5
+        ),
+        margin=dict(l=60, r=200, t=80, b=120),
     )
     create_modern_theme(fig_temp)
     html_sections.append(
@@ -534,10 +583,9 @@ def generate_report(
         )
     )
 
-    # Precipitation Chart
+    # 2. Precipitation Chart
     fig_pr = go.Figure()
     for m_idx in range(1, 13):
-        m_name = months[m_idx - 1]
         m_df = monthly_df.filter(pl.col("month") == m_idx).sort("year")
 
         stats = None
@@ -555,35 +603,44 @@ def generate_report(
                 )
                 .sort("year")
             )
+            lt_mean = stats["avg"].mean()
+            stats = stats.with_columns(anomaly=pl.col("avg") - lt_mean)
 
         x = stats["year"].to_list() if stats is not None else []
         y = stats["avg"].to_list() if stats is not None else []
+        anom_list = stats["anomaly"].to_list() if stats is not None else []
         c_data = (
-            stats[["q1", "q3", "min", "max"]].rows()
+            stats[["q1", "q3", "min", "max", "anomaly"]].rows()
             if stats is not None
             else []
         )
 
+        # Trace 0: Shading
+        y_upper, y_lower = [], []
+        if stats is not None:
+            x_vals = [float(xi) for xi in x]
+            trend_y = calculate_trendline(x_vals, y)
+            if trend_y:
+                resids = [yi - tyi for yi, tyi in zip(y, trend_y)]
+                std_resid = (sum(r**2 for r in resids) / len(resids)) ** 0.5
+                y_upper = [ty + std_resid for ty in trend_y]
+                y_lower = [ty - std_resid for ty in trend_y]
+
         fig_pr.add_trace(
             go.Scatter(
-                x=x,
-                y=y,
-                customdata=c_data,
-                mode="lines+markers",
-                name=m_name,
-                visible=(m_idx == 1),
-                marker=dict(size=5, color="#1a5fb4"),
-                line=dict(width=1.5, color="#1a5fb4"),
-                hovertemplate=(
-                    "<b>Year: %{x}</b><br>Total: %{y:.1f} mm<br>"
-                    "Q1: %{customdata[0]:.1f} mm<br>"
-                    "Q3: %{customdata[1]:.1f} mm<br>"
-                    "Min: %{customdata[2]:.1f} mm<br>"
-                    "Max: %{customdata[3]:.1f} mm<br>"
-                    "<extra></extra>"
-                ),
+                x=x + x[::-1],
+                y=y_upper + y_lower[::-1],
+                fill="toself",
+                fillcolor="rgba(100, 150, 200, 0.1)",
+                line=dict(color="rgba(0,0,0,0)"),
+                name="Std Dev (Trend-rel.)",
+                visible=(m_idx == 1 and shade_deviation),
+                showlegend=(m_idx == 1 and shade_deviation),
+                hoverinfo="skip",
             )
         )
+
+        # Trace 1: Range
         q3 = stats["q3"] if stats is not None else []
         q1 = stats["q1"] if stats is not None else []
         avg = stats["avg"] if stats is not None else []
@@ -592,7 +649,7 @@ def generate_report(
                 x=x,
                 y=y,
                 mode="markers",
-                name=f"{m_name} Range",
+                name="Spread (Q1-Q3)",
                 visible=(m_idx == 1),
                 marker=dict(size=0),
                 error_y=dict(
@@ -603,35 +660,76 @@ def generate_report(
                     if stats is not None
                     else [],
                     width=0,
-                    thickness=1.5,
-                    color="rgba(26, 95, 180, 0.4)",
+                    thickness=1,
+                    color="rgba(0, 0, 0, 0.15)",
                 ),
-                showlegend=False,
+                showlegend=(m_idx == 1),
                 hoverinfo="skip",
             )
         )
 
-        if show_trend:
-            trend = calculate_trendline([float(xi) for xi in x], y)
-            fig_pr.add_trace(
-                go.Scatter(
-                    x=x,
-                    y=trend if trend else [],
-                    mode="lines",
-                    name=f"{m_name} Trend",
-                    visible=(m_idx == 1),
-                    line=dict(width=2, color="#e74c3c", dash="dash"),
-                    hoverinfo="skip",
-                )
+        # Trace 2: Trend
+        x_vals = [float(xi) for xi in x]
+        trend_y = calculate_trendline(x_vals, y) if stats is not None else None
+        fig_pr.add_trace(
+            go.Scatter(
+                x=x,
+                y=trend_y if trend_y else [],
+                mode="lines",
+                name="Linear Trend",
+                visible=(m_idx == 1 and show_trend),
+                line=dict(width=2.5, color="#e74c3c", dash="dash"),
+                showlegend=(m_idx == 1 and show_trend),
+                hoverinfo="skip",
             )
+        )
+
+        # Trace 3: Main
+        m_color = anom_list if show_anomaly else "#1a5fb4"
+        m_cscale = "BrBG" if show_anomaly else None
+        fig_pr.add_trace(
+            go.Scatter(
+                x=x,
+                y=y,
+                customdata=c_data,
+                mode="lines+markers",
+                name="Observations",
+                visible=(m_idx == 1),
+                marker=dict(
+                    size=8,
+                    color=m_color,
+                    colorscale=m_cscale,
+                    cmid=0,
+                    line=dict(width=1, color="white"),
+                    colorbar=(
+                        dict(title="Anomaly (mm)", x=1.05, thickness=12)
+                        if (m_idx == 1 and show_anomaly)
+                        else None
+                    ),
+                ),
+                line=dict(width=1, color="rgba(0,0,0,0.2)"),
+                showlegend=(m_idx == 1),
+                hovertemplate=(
+                    "<b>Year: %{x}</b><br>Total: %{y:.1f} mm<br>"
+                    "Anomaly: %{customdata[4]:+.1f} mm<br>"
+                    "Q1: %{customdata[0]:.1f} mm<br>"
+                    "Q3: %{customdata[1]:.1f} mm<br>"
+                    "<extra></extra>"
+                ),
+            )
+        )
 
     fig_pr.update_layout(
         title=dict(
-            text="Monthly Precipitation Summary",
+            text="Monthly Precipitation Analysis",
             x=0.5,
-            y=0.95,
+            y=0.96,
             xanchor="center",
         ),
+        legend=dict(
+            orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5
+        ),
+        margin=dict(l=60, r=200, t=80, b=120),
     )
     create_modern_theme(fig_pr)
     html_sections.append(
@@ -640,7 +738,7 @@ def generate_report(
         )
     )
 
-    # Map
+    # 3. Map
     fig_map = go.Figure()
     curr_df = map_stations.filter(pl.col("is_current"))
     hist_df = map_stations.filter(~pl.col("is_current"))
@@ -677,7 +775,7 @@ def generate_report(
                 ),
                 zoom=8,
             ),
-            margin=dict(l=0, r=0, t=50, b=0),
+            margin=dict(l=0, r=0, t=50, b=10),
             height=500,
             title=dict(
                 text="Climate Stations", x=0.5, y=0.98, xanchor="center"
@@ -696,10 +794,7 @@ def generate_report(
             )
         )
 
-    f_url = (
-        "https://fonts.googleapis.com/css2?"
-        "family=Inter:wght@400;600&display=swap"
-    )
+    f_url = "https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"
     template = """
     <!DOCTYPE html>
     <html lang="en">
@@ -707,75 +802,105 @@ def generate_report(
         <meta charset="UTF-8"><title>Climate Analysis - {{ location }}</title>
         <link href="{{ f_url }}" rel="stylesheet">
         <style>
-            body { font-family: 'Inter', sans-serif; max-width: 1000px;
-                   margin: 0 auto; padding: 2em; background: #f8f9fa;
-                   color: #333; }
-            .card { background: white; padding: 2.5em; border-radius: 12px;
-                    box-shadow: 0 4px 20px rgba(0,0,0,0.06);
-                    margin-bottom: 2.5em; position: relative; }
-            h1 { font-weight: 600; font-size: 2.5em; margin: 0;
-                 text-align: center; }
-            header { margin-bottom: 3em; border-bottom: 1px solid #ddd;
-                     padding-bottom: 2em; }
-            .meta { color: #666; text-align: center; margin-top: 0.5em;
-                    font-size: 0.95em; }
-            .controls { background: #fff; padding: 1.5em; border-radius: 8px;
-                        margin-bottom: 2em; display: flex; align-items: center;
-                        justify-content: center; gap: 15px;
-                        box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
-            select { padding: 8px 16px; border-radius: 6px;
-                     border: 1px solid #ccc;
-                     font-family: inherit; font-size: 1em; cursor: pointer; }
-            h2 { color: #2c3e50; font-size: 1.4em; border-left: 4px solid
-                 #3498db; padding-left: 15px; margin-bottom: 1.5em; }
-            footer { text-align: center; color: #999; font-size: 0.8em;
-                     margin-top: 2em; }
+            body {
+                font-family: 'Inter', sans-serif;
+                max-width: 1000px;
+                margin: 0 auto;
+                padding: 2em;
+                background: #f8f9fa;
+                color: #333;
+            }
+            .card {
+                background: white;
+                padding: 2em;
+                border-radius: 12px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+                margin-bottom: 2em;
+            }
+            h1 { font-weight: 600; text-align: center; margin: 0; }
+            header {
+                margin-bottom: 2.5em;
+                border-bottom: 1px solid #ddd;
+                padding-bottom: 1.5em;
+            }
+            .meta {
+                color: #666;
+                text-align: center;
+                margin-top: 0.5em;
+                font-size: 0.9em;
+            }
+            .controls {
+                background: #fff;
+                padding: 1em;
+                border-radius: 8px;
+                margin-bottom: 2em;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 15px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+            }
+            select {
+                padding: 8px 16px;
+                border-radius: 6px;
+                border: 1px solid #ccc;
+                font-family: inherit;
+                cursor: pointer;
+            }
+            footer {
+                text-align: center;
+                color: #999;
+                font-size: 0.8em;
+                margin-top: 2em;
+            }
         </style>
     </head>
     <body>
         <header>
             <h1>Climate Analysis: {{ location }}</h1>
             <div class="meta">
-                {{ radius }}km radius. Daily Station Data aggregated.
-                <br>Generated: {{ date }}
+                {{ radius }}km radius. Aggregated Daily Data.<br>
+                Generated: {{ date }}
             </div>
         </header>
-
         <div class="controls">
-            <label for="month-select"><b>Select Month to Analyze:</b></label>
+            <label for="month-select"><b>Select Month:</b></label>
             <select id="month-select">
                 {% for m in months %}
-                <option value="{{ loop.index0 }}">{{ m }}</option>
+                    <option value="{{ loop.index0 }}">{{ m }}</option>
                 {% endfor %}
             </select>
         </div>
-
-        <div class="card"><h2>Temperature</h2>{{ plots[0] }}</div>
-        <div class="card"><h2>Precipitation</h2>{{ plots[1] }}</div>
+        <div class="card">{{ plots[0] }}</div>
+        <div class="card">{{ plots[1] }}</div>
         {% if plots|length > 2 %}
-            <div class="card"><h2>Stations</h2>{{ plots[2] }}</div>
+            <div class="card">{{ plots[2] }}</div>
         {% endif %}
         <footer>Climate Analysis Tool &copy; 2026</footer>
-
         <script>
         const tracesPerMonth = {{ traces_per_month }};
-        const totalTraces = 12 * tracesPerMonth;
-        
+        const showTrend = {{ show_trend|tojson }};
+        const showDev = {{ show_dev|tojson }};
         document.getElementById('month-select')
             .addEventListener('change', function(e) {
-                const mIdx = parseInt(e.target.value);
-                const charts = ['chart-temp', 'chart-precip'];
-                
-                charts.forEach(id => {
-                    const gd = document.getElementById(id);
-                    if (!gd) return;
-                    
-                    const vis = Array.from({length: totalTraces}, (_, i) => 
-                        Math.floor(i/tracesPerMonth) === mIdx
-                    );
-                    Plotly.restyle(gd, {visible: vis});
-                });
+            const mIdx = parseInt(e.target.value);
+            ['chart-temp', 'chart-precip'].forEach(id => {
+                const gd = document.getElementById(id);
+                if (!gd) return;
+                const vis = Array.from(
+                    { length: 12 * tracesPerMonth },
+                    (_, i) => {
+                        const month = Math.floor(i / tracesPerMonth);
+                        const type = i % tracesPerMonth;
+                        if (month !== mIdx) return false;
+                        if (type === 0) return showDev;
+                        if (type === 2) return showTrend;
+                        return true;
+                    }
+                );
+                Plotly.restyle(gd, {visible: vis});
             });
+        });
         </script>
     </body></html>
     """
@@ -787,6 +912,8 @@ def generate_report(
         f_url=f_url,
         months=months,
         traces_per_month=traces_per_month,
+        show_trend=show_trend,
+        show_dev=shade_deviation,
     )
 
 
@@ -794,16 +921,19 @@ def generate_report(
 @click.option("--location", required=True, help="Location name")
 @click.option("--radius", default=100.0, help="Radius (km)")
 @click.option("--start-year", default=1900, help="Start year")
-@click.option("--end-year", default=None, help="End year")
+@click.option("--end_year", default=None, help="End year")
 @click.option("--trend", is_flag=True, help="Show trendlines")
+@click.option("--shade-deviation", is_flag=True, help="Shade deviation")
+@click.option("--no-anomaly", is_flag=True, help="Disable anomaly coloring")
 def main(
     location: str,
     radius: float,
     start_year: int,
     end_year: int | None,
     trend: bool = False,
+    shade_deviation: bool = False,
+    no_anomaly: bool = False,
 ) -> None:
-    """Entry point."""
     if end_year is None:
         end_year = datetime.datetime.now().year
     cache = ClimateCache()
@@ -824,7 +954,19 @@ def main(
     if daily_df.is_empty():
         logger.error("No data found.")
         sys.exit(1)
-    report = generate_report(daily_df, stations_df, location, radius, trend)
+    # Determine if anomaly coloring should be shown:
+    # Only if shade_deviation is requested AND not explicitly disabled
+    show_anomaly_plot = shade_deviation and not no_anomaly
+
+    report = generate_report(
+        daily_df,
+        stations_df,
+        location,
+        radius,
+        trend,
+        shade_deviation,
+        show_anomaly_plot,
+    )
     fname = f"climate_report_{location.lower().replace(' ', '_')}.html"
     with open(fname, "w", encoding="utf-8") as f:
         f.write(report)
