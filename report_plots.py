@@ -218,7 +218,7 @@ def create_temperature_plot(
                     if stats is not None
                     else [],
                     width=0,
-                    thickness=2,
+                    thickness=1,
                     color="rgba(0, 0, 0, 0.35)",
                 ),
                 showlegend=True,

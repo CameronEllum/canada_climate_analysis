@@ -30,7 +30,9 @@ logger = logging.getLogger(__name__)
 @click.option("--start-year", default=1900, help="Start year")
 @click.option("--end_year", default=None, help="End year")
 @click.option("--trend/--no-trend", default=True, help="Show trendlines")
-@click.option("--std-dev", is_flag=True, help="Shade deviation")
+@click.option(
+    "--std-dev/--no-std-dev", default=False, help="Shade standard deviation"
+)
 @click.option(
     "--show-anomaly/--no-anomaly",
     default=True,
