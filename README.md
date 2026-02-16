@@ -19,6 +19,8 @@ This application downloads daily climate data from MSC GeoMet and generates HTML
 
 Run the analysis using `uv run main.py`. The tool will automatically geocode the location name, find nearby stations, and fetch data.
 
+Data downloaded from MSC GeoMet is cached in a SQLite database for future use. HTTP requests are also cached using the `requests-cache` library. This can probably be removed in the future; it was just to be a good citizen while developing.
+
 ### Examples
 
 **Basic report for Calgary:**
