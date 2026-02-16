@@ -6,7 +6,8 @@ This application downloads daily climate data from MSC GeoMet and generates HTML
 
 An example report is at https://cameronellum.github.io/canada_climate_analysis/reports/climate_report_monthly_1925-2026_calgary.html.
 
-<img width="1059" height="2288" alt="image" src="https://github.com/user-attachments/assets/11792e0e-1df6-4d6e-b5be-f42449e54215" />
+<img width="1043" height="2283" alt="image" src="https://github.com/user-attachments/assets/cdb4e30d-e6f7-4ce0-bcc2-a77b82c63e1f" />
+
 
 ## Prerequisites
 
