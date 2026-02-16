@@ -57,7 +57,8 @@ uv run main.py --location "Edmonton" --max
 
 ## Example Output
 
-*The example output will be included here later.*
+<img width="1059" height="2288" alt="image" src="https://github.com/user-attachments/assets/11792e0e-1df6-4d6e-b5be-f42449e54215" />
+
 
 ## Data Sources
 
