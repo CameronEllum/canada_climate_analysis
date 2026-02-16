@@ -80,7 +80,7 @@ def _calculate_period_stats(
         agg_exprs.extend(
             [
                 pl.col("temp_mean").mean().alias("avg"),
-                pl.col("temp_mean").median().alias("median"),
+                pl.col("temp_median").mean().alias("median"),
                 pl.col("temp_min_abs").min().alias("min"),
                 pl.col("temp_max_abs").max().alias("max"),
             ]
@@ -89,15 +89,14 @@ def _calculate_period_stats(
         agg_exprs.extend(
             [
                 pl.col("precip_total").mean().alias("avg"),
-                pl.col("precip_total").median().alias("median"),
+                pl.col("precip_median").mean().alias("median"),
                 pl.col("precip_total").min().alias("min"),
                 pl.col("precip_total").max().alias("max"),
             ]
         )
 
     for c in p_cols:
-        p_val = c.split("p")[-1]
-        agg_exprs.append(pl.col(c).mean().alias(f"p{p_val}"))
+        agg_exprs.append(pl.col(c).mean().alias(c.split("_")[-1]))
 
     return p_df.group_by("year").agg(agg_exprs).sort("year")
 
@@ -144,10 +143,27 @@ def _create_trend_trace(
     )
 
 
+def _create_median_trace(
+    x: list, y: list, p_idx: int, show_median: bool
+) -> go.Scatter:
+    """Create median line trace."""
+    return go.Scatter(
+        x=x,
+        y=y,
+        mode="lines",
+        name="Median",
+        visible=(p_idx == 1 and show_median),
+        line=dict(width=1, color="black", dash="dot"),
+        showlegend=show_median,
+        hoverinfo="skip",
+    )
+
+
 def create_temperature_plot(
     merged_df: pl.DataFrame,
     period_labels: list[str],
     show_trend: bool,
+    show_median: bool,
     show_anomaly: bool,
     max_temp: bool = False,
     min_temp: bool = False,
@@ -272,6 +288,15 @@ def create_temperature_plot(
                     )
                 )
 
+            m_trace = _create_median_trace(
+                x,
+                stats_df["median"].to_list() if stats_df is not None else [],
+                p_idx,
+                show_median,
+            )
+            m_trace.name = f"{loc_prefix}{m_trace.name}"
+            fig.add_trace(m_trace)
+
             t_trace = _create_trend_trace(x, y, p_idx, show_trend)
             t_trace.name = f"{loc_prefix}{t_trace.name}"
             t_trace.line.color = color
@@ -345,6 +370,7 @@ def create_precipitation_plot(
     merged_df: pl.DataFrame,
     period_labels: list[str],
     show_trend: bool,
+    show_median: bool,
     show_anomaly: bool,
     locations: list[str] = None,
     period_type: str = "monthly",
@@ -397,6 +423,15 @@ def create_precipitation_plot(
 
             color = colors[i % len(colors)]
             loc_prefix = f"{loc.split(',')[0]} - " if len(locations) > 1 else ""
+
+            m_trace = _create_median_trace(
+                x,
+                stats_df["median"].to_list() if stats_df is not None else [],
+                p_idx,
+                show_median,
+            )
+            m_trace.name = f"{loc_prefix}{m_trace.name}"
+            fig.add_trace(m_trace)
 
             t_trace = _create_trend_trace(x, y, p_idx, show_trend)
             t_trace.name = f"{loc_prefix}{t_trace.name}"

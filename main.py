@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 @click.option("--start-year", default=1900, type=int, help="Start year")
 @click.option("--end-year", default=None, type=int, help="End year")
 @click.option("--trend/--no-trend", default=True, help="Show trendlines")
+@click.option("--median/--no-median", default=False, help="Show median line")
 @click.option(
     "--show-anomaly/--no-anomaly",
     default=True,
@@ -88,6 +89,7 @@ def main(
     start_year: int,
     end_year: int,
     trend: bool,
+    median: bool,
     show_anomaly: bool,
     max_temp: bool,
     min_temp: bool,
@@ -169,6 +171,7 @@ def main(
         normalized_locations,
         radius,
         trend,
+        median,
         show_anomaly,
         max_temp,
         min_temp,

@@ -98,7 +98,7 @@
         const traces_per_month_precip = {{ traces_per_month_precip }};
         const num_locations = {{ num_locations }};
         const showTrend = {{ show_trend | tojson }};
-        const showDev = {{ show_dev | tojson }};
+        const showMedian = {{ show_median | tojson }};
         const numPeriods = {{ months | length }};
 
         document.getElementById('month-select')
@@ -119,11 +119,14 @@
 
                             const traceWithinLoc = (i % tpm) % tpl;
                             if (id === 'chart-temp') {
-                                if (traceWithinLoc === 0) return showDev;
+                                // Temperature: (2*ribbons) traces + Median + Trend + Observations
+                                if (traceWithinLoc === tpl - 3) return showMedian;
                                 if (traceWithinLoc === tpl - 2) return showTrend;
                                 return true;
                             } else {
-                                if (traceWithinLoc === 0) return showTrend;
+                                // Precipitation: Median + Trend + Observations
+                                if (traceWithinLoc === 0) return showMedian;
+                                if (traceWithinLoc === 1) return showTrend;
                                 return true;
                             }
                         }

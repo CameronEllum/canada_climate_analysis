@@ -67,9 +67,13 @@ def aggregate_data(
 
     agg_exprs = [
         pl.col(target_col).mean().alias("temp_mean"),
+        pl.col(target_col).median().alias("temp_median"),
         pl.col(min_col).min().alias("temp_min_abs"),
         pl.col(max_col).max().alias("temp_max_abs"),
-        pl.col("precip").sum().alias("precip_total"),
+        (pl.col("precip").sum() / pl.col("station_id").n_unique()).alias(
+            "precip_total"
+        ),
+        pl.col("precip").median().alias("precip_median"),
     ]
 
     for p in p_set:
@@ -77,9 +81,9 @@ def aggregate_data(
         agg_exprs.append(pl.col(target_col).quantile(q).alias(f"temp_p{p}"))
         agg_exprs.append(pl.col("precip").quantile(q).alias(f"precip_p{p}"))
 
-    return df.group_by(
-        ["requested_location", "station_id", "year", "period_idx"]
-    ).agg(agg_exprs)
+    return df.group_by(["requested_location", "year", "period_idx"]).agg(
+        agg_exprs
+    )
 
 
 def render_template(
@@ -92,6 +96,7 @@ def render_template(
     num_ribbons: int,
     num_locations: int,
     show_trend: bool,
+    show_median: bool,
 ) -> str:
     """Render the HTML report using Jinja2."""
     template_path = Path(__file__).parent / "template.html"
@@ -112,6 +117,7 @@ def render_template(
         num_ribbons=num_ribbons,
         num_locations=num_locations,
         show_trend=show_trend,
+        show_median=show_median,
     )
 
 
@@ -121,6 +127,7 @@ def generate_report(
     locations: list[str],
     radius: float,
     show_trend: bool = False,
+    show_median: bool = False,
     show_anomaly: bool = True,
     max_temp: bool = False,
     min_temp: bool = False,
@@ -175,6 +182,7 @@ def generate_report(
         merged_df,
         period_labels,
         show_trend,
+        show_median,
         show_anomaly,
         max_temp,
         min_temp,
@@ -188,6 +196,7 @@ def generate_report(
         merged_df,
         period_labels,
         show_trend,
+        show_median,
         show_anomaly,
         locations=locations,
         period_type=period,
@@ -217,13 +226,13 @@ def generate_report(
     ]
 
     # Each location adds:
-    # Temperature: (2 * num_ribbons) traces, 1 trend, 1 obs
-    # Precipitation: 1 trend, 1 obs
+    # Temperature: (2 * num_ribbons) traces, 1 trend, 1 median, 1 obs
+    # Precipitation: 1 trend, 1 median, 1 obs
     ribbon_pairs = [p for p in ribbon_percentiles if p < 50]
-    traces_per_loc_temp = 2 * len(ribbon_pairs) + 1 + 1
+    traces_per_loc_temp = 2 * len(ribbon_pairs) + 1 + 1 + 1
     traces_per_month_temp = traces_per_loc_temp * len(locations)
 
-    traces_per_loc_precip = 2
+    traces_per_loc_precip = 3
     traces_per_month_precip = traces_per_loc_precip * len(locations)
 
     return render_template(
@@ -236,4 +245,5 @@ def generate_report(
         len(ribbon_pairs),
         len(locations),
         show_trend,
+        show_median,
     )
