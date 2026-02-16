@@ -11,14 +11,28 @@ import polars as pl
 
 
 def calculate_trendline(x: list[float], y: list[float]) -> list[float] | None:
-    """Calculate simple linear trendline."""
-    if len(x) < 2 or len(y) < 2:
+    """Calculate simple linear trendline.
+
+    Filters out None values from the input data before calculating the trend.
+    Returns None if insufficient valid data points remain.
+    """
+    if len(x) < 2 or len(y) < 2 or len(x) != len(y):
         return None
-    n = len(x)
-    sum_x = sum(x)
-    sum_y = sum(y)
-    sum_xy = sum(xi * yi for xi, yi in zip(x, y))
-    sum_x2 = sum(xi**2 for xi in x)
+
+    # Filter out None values
+    valid_pairs = [(xi, yi) for xi, yi in zip(x, y) if yi is not None]
+
+    if len(valid_pairs) < 2:
+        return None
+
+    # Unzip the valid pairs
+    x_valid, y_valid = zip(*valid_pairs)
+
+    n = len(x_valid)
+    sum_x = sum(x_valid)
+    sum_y = sum(y_valid)
+    sum_xy = sum(xi * yi for xi, yi in zip(x_valid, y_valid))
+    sum_x2 = sum(xi**2 for xi in x_valid)
 
     denom = n * sum_x2 - sum_x**2
     if abs(denom) < 1e-10:
@@ -26,6 +40,8 @@ def calculate_trendline(x: list[float], y: list[float]) -> list[float] | None:
 
     slope = (n * sum_xy - sum_x * sum_y) / denom
     intercept = (sum_y - slope * sum_x) / n
+
+    # Return trend values for ALL original x values (including those with None y)
     return [slope * xi + intercept for xi in x]
 
 

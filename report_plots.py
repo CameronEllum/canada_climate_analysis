@@ -106,10 +106,12 @@ def _create_shading_trace(
         x_vals = [float(xi) for xi in x]
         trend_y = calculate_trendline(x_vals, y)
         if trend_y:
-            resids = [yi - tyi for yi, tyi in zip(y, trend_y)]
-            std_resid = (sum(r**2 for r in resids) / len(resids)) ** 0.5
-            y_upper = [ty + std_resid for ty in trend_y]
-            y_lower = [ty - std_resid for ty in trend_y]
+            # Filter out None values when calculating residuals
+            resids = [yi - tyi for yi, tyi in zip(y, trend_y) if yi is not None]
+            if resids:  # Only calculate std if we have valid residuals
+                std_resid = (sum(r**2 for r in resids) / len(resids)) ** 0.5
+                y_upper = [ty + std_resid for ty in trend_y]
+                y_lower = [ty - std_resid for ty in trend_y]
 
     return go.Scatter(
         x=x + x[::-1],
@@ -217,7 +219,12 @@ def create_temperature_plot(
         fig.add_trace(_create_trend_trace(x, y, m_idx, show_trend))
 
         # Trace 3: Main Data
-        m_color = anom_list if show_anomaly else "#2c3e50"
+        # Replace None values with 0 for color mapping
+        m_color = (
+            [a if a is not None else 0 for a in anom_list]
+            if show_anomaly
+            else "#2c3e50"
+        )
         m_cscale = "RdBu_r" if show_anomaly else None
         fig.add_trace(
             go.Scatter(
@@ -329,7 +336,12 @@ def create_precipitation_plot(
         fig.add_trace(_create_trend_trace(x, y, m_idx, show_trend))
 
         # Trace 3: Main
-        m_color = anom_list if show_anomaly else "#1a5fb4"
+        # Replace None values with 0 for color mapping
+        m_color = (
+            [a if a is not None else 0 for a in anom_list]
+            if show_anomaly
+            else "#1a5fb4"
+        )
         m_cscale = "BrBG" if show_anomaly else None
         fig.add_trace(
             go.Scatter(

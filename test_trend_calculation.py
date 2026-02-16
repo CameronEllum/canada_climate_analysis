@@ -85,6 +85,29 @@ class TestTrendlineCalculation:
 
         assert trend is None
 
+    def test_with_none_values(self):
+        """Test trendline calculation with None values in data."""
+        x = [1.0, 2.0, 3.0, 4.0, 5.0]
+        y = [1.0, None, 3.0, None, 5.0]  # Some None values
+
+        trend = calculate_trendline(x, y)
+
+        # Should still calculate trend using valid points
+        assert trend is not None
+        assert len(trend) == 5
+        # Trend should be close to y = x for valid points
+        assert abs(trend[0] - 1.0) < 0.5
+        assert abs(trend[4] - 5.0) < 0.5
+
+    def test_all_none_values(self):
+        """Test that all None values returns None."""
+        x = [1.0, 2.0, 3.0]
+        y = [None, None, None]
+
+        trend = calculate_trendline(x, y)
+
+        assert trend is None
+
 
 class TestAnomalyCalculation:
     """Test the anomaly calculation function."""
