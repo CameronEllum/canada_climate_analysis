@@ -87,7 +87,10 @@ def render_template(
     radius: float,
     plots: list[str],
     period_labels: list[str],
-    traces_per_month: int,
+    traces_per_month_temp: int,
+    traces_per_month_precip: int,
+    num_ribbons: int,
+    num_locations: int,
     show_trend: bool,
     shade_deviation: bool,
 ) -> str:
@@ -105,7 +108,10 @@ def render_template(
         plots=plots,
         f_url=f_url,
         months=period_labels,
-        traces_per_month=traces_per_month,
+        traces_per_month_temp=traces_per_month_temp,
+        traces_per_month_precip=traces_per_month_precip,
+        num_ribbons=num_ribbons,
+        num_locations=num_locations,
         show_trend=show_trend,
         show_dev=shade_deviation,
     )
@@ -216,19 +222,24 @@ def generate_report(
     ]
 
     # Each location adds:
-    # 1 shading
-    # 2 traces per symmetric ribbon pair (boundary + fill)
-    # 1 trend
-    # 1 obs
+    # Temperature: 1 shading, (2 * num_ribbons) traces, 1 trend, 1 obs
+    # Precipitation: 1 trend, 1 obs
     ribbon_pairs = [p for p in ribbon_percentiles if p < 50]
-    traces_per_month = (1 + 2 * len(ribbon_pairs) + 1 + 1) * len(locations)
+    traces_per_loc_temp = 1 + 2 * len(ribbon_pairs) + 1 + 1
+    traces_per_month_temp = traces_per_loc_temp * len(locations)
+
+    traces_per_loc_precip = 2
+    traces_per_month_precip = traces_per_loc_precip * len(locations)
 
     return render_template(
         locations,
         radius,
         html_sections,
         period_labels,
-        traces_per_month,
+        traces_per_month_temp,
+        traces_per_month_precip,
+        len(ribbon_pairs),
+        len(locations),
         show_trend,
         std_dev,
     )

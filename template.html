@@ -94,26 +94,38 @@
     {% endif %}
     <footer>Climate Analysis Tool &copy; 2026</footer>
     <script>
-        const tracesPerMonth = {{ traces_per_month }};
+        const traces_per_month_temp = {{ traces_per_month_temp }};
+        const traces_per_month_precip = {{ traces_per_month_precip }};
+        const num_locations = {{ num_locations }};
         const showTrend = {{ show_trend | tojson }};
         const showDev = {{ show_dev | tojson }};
         const numPeriods = {{ months | length }};
+
         document.getElementById('month-select')
             .addEventListener('change', function (e) {
                 const mIdx = parseInt(e.target.value);
                 ['chart-temp', 'chart-precip'].forEach(id => {
                     const gd = document.getElementById(id);
                     if (!gd) return;
+
+                    const tpm = (id === 'chart-temp') ? traces_per_month_temp : traces_per_month_precip;
+                    const tpl = tpm / num_locations;
+
                     const vis = Array.from(
-                        { length: numPeriods * tracesPerMonth },
+                        { length: numPeriods * tpm },
                         (_, i) => {
-                            const month = Math.floor(i / tracesPerMonth);
-                            const traceWithinMonth = i % tracesPerMonth;
-                            const type = traceWithinMonth % 4; // 4 traces per location
+                            const month = Math.floor(i / tpm);
                             if (month !== mIdx) return false;
-                            if (type === 0) return showDev;
-                            if (type === 2) return showTrend;
-                            return true;
+
+                            const traceWithinLoc = (i % tpm) % tpl;
+                            if (id === 'chart-temp') {
+                                if (traceWithinLoc === 0) return showDev;
+                                if (traceWithinLoc === tpl - 2) return showTrend;
+                                return true;
+                            } else {
+                                if (traceWithinLoc === 0) return showTrend;
+                                return true;
+                            }
                         }
                     );
                     Plotly.restyle(gd, { visible: vis });
