@@ -452,13 +452,29 @@ def generate_report(
                 .sort("year")
             )
             lt_mean = stats["avg"].mean()
-            stats = stats.with_columns(anomaly=pl.col("avg") - lt_mean)
+            # Calculate trendline for percentage
+            x_vals = [float(xi) for xi in stats["year"].to_list()]
+            y_vals = stats["avg"].to_list()
+            trend_y = calculate_trendline(x_vals, y_vals)
+
+            if trend_y:
+                stats = stats.with_columns(
+                    anomaly=pl.col("avg") - pl.Series(trend_y),
+                    anom_pct=100
+                    * (pl.col("avg") - pl.Series(trend_y))
+                    / pl.Series(trend_y),
+                )
+            else:
+                stats = stats.with_columns(
+                    anomaly=pl.col("avg") - lt_mean,
+                    anom_pct=100 * (pl.col("avg") - lt_mean) / lt_mean,
+                )
 
         x = stats["year"].to_list() if stats is not None else []
         y = stats["avg"].to_list() if stats is not None else []
         anom_list = stats["anomaly"].to_list() if stats is not None else []
         c_data = (
-            stats[["q1", "q3", "min", "max", "anomaly"]].rows()
+            stats[["q1", "q3", "min", "max", "anomaly", "anom_pct"]].rows()
             if stats is not None
             else []
         )
@@ -619,13 +635,29 @@ def generate_report(
                 .sort("year")
             )
             lt_mean = stats["avg"].mean()
-            stats = stats.with_columns(anomaly=pl.col("avg") - lt_mean)
+            # Calculate trendline for percentage
+            x_vals = [float(xi) for xi in stats["year"].to_list()]
+            y_vals = stats["avg"].to_list()
+            trend_y = calculate_trendline(x_vals, y_vals)
+
+            if trend_y:
+                stats = stats.with_columns(
+                    anomaly=pl.col("avg") - pl.Series(trend_y),
+                    anom_pct=100
+                    * (pl.col("avg") - pl.Series(trend_y))
+                    / pl.Series(trend_y),
+                )
+            else:
+                stats = stats.with_columns(
+                    anomaly=pl.col("avg") - lt_mean,
+                    anom_pct=100 * (pl.col("avg") - lt_mean) / lt_mean,
+                )
 
         x = stats["year"].to_list() if stats is not None else []
         y = stats["avg"].to_list() if stats is not None else []
         anom_list = stats["anomaly"].to_list() if stats is not None else []
         c_data = (
-            stats[["q1", "q3", "min", "max", "anomaly"]].rows()
+            stats[["q1", "q3", "min", "max", "anomaly", "anom_pct"]].rows()
             if stats is not None
             else []
         )
