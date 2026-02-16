@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"><title>Climate Analysis - {{ location }}</title>
+    <link href="{{ f_url }}" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 2em;
+            background: #f8f9fa;
+            color: #333;
+        }
+        .card {
+            background: white;
+            padding: 2em;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+            margin-bottom: 2em;
+        }
+        h1 { font-weight: 600; text-align: center; margin: 0; }
+        header {
+            margin-bottom: 2.5em;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 1.5em;
+        }
+        .meta {
+            color: #666;
+            text-align: center;
+            margin-top: 0.5em;
+            font-size: 0.9em;
+        }
+        .controls {
+            background: #fff;
+            padding: 1em;
+            border-radius: 8px;
+            margin-bottom: 2em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+        }
+        select {
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            font-family: inherit;
+            cursor: pointer;
+        }
+        footer {
+            text-align: center;
+            color: #999;
+            font-size: 0.8em;
+            margin-top: 2em;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Climate Analysis: {{ location }}</h1>
+        <div class="meta">
+            {{ radius }}km radius. Aggregated Daily Data.<br>
+            Generated: {{ date }}
+        </div>
+    </header>
+    <div class="controls">
+        <label for="month-select"><b>Select Month:</b></label>
+        <select id="month-select">
+            {% for m in months %}
+                <option value="{{ loop.index0 }}">{{ m }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="card">{{ plots[0] }}</div>
+    <div class="card">{{ plots[1] }}</div>
+    {% if plots|length > 2 %}
+        <div class="card">{{ plots[2] }}</div>
+    {% endif %}
+    <footer>Climate Analysis Tool &copy; 2026</footer>
+    <script>
+    const tracesPerMonth = {{ traces_per_month }};
+    const showTrend = {{ show_trend|tojson }};
+    const showDev = {{ show_dev|tojson }};
+    document.getElementById('month-select')
+        .addEventListener('change', function(e) {
+        const mIdx = parseInt(e.target.value);
+        ['chart-temp', 'chart-precip'].forEach(id => {
+            const gd = document.getElementById(id);
+            if (!gd) return;
+            const vis = Array.from(
+                { length: 12 * tracesPerMonth },
+                (_, i) => {
+                    const month = Math.floor(i / tracesPerMonth);
+                    const type = i % tracesPerMonth;
+                    if (month !== mIdx) return false;
+                    if (type === 0) return showDev;
+                    if (type === 2) return showTrend;
+                    return true;
+                }
+            );
+            Plotly.restyle(gd, {visible: vis});
+        });
+    });
+    </script>
+</body></html>
