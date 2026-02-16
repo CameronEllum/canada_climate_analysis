@@ -377,3 +377,81 @@ def create_precipitation_plot(
     )
     create_modern_theme(fig)
     return fig
+
+
+def create_station_map(
+    stations_df: pl.DataFrame,
+    daily_df: pl.DataFrame,
+) -> go.Figure:
+    """Create a map showing historical and active climate stations."""
+    fig = go.Figure()
+
+    # Calculate year ranges for each station
+    max_year = daily_df["year"].max()
+    range_df = daily_df.group_by("station_id").agg(
+        [
+            pl.col("year").min().alias("min_y"),
+            pl.col("year").max().alias("max_y"),
+        ]
+    )
+
+    # Join station info with year ranges
+    map_stations = stations_df.join(
+        range_df, left_on="id", right_on="station_id"
+    )
+    map_stations = map_stations.with_columns(
+        is_current=pl.col("max_y") == max_year
+    )
+
+    # Separate into historical and active stations
+    curr_df = map_stations.filter(pl.col("is_current"))
+    hist_df = map_stations.filter(~pl.col("is_current"))
+
+    for group_df, color, label in [
+        (hist_df, "#e74c3c", "Historical"),
+        (curr_df, "#2ecc71", "Active"),
+    ]:
+        if group_df.is_empty():
+            continue
+        lats, lons, h_text = [], [], []
+        for row in group_df.iter_rows(named=True):
+            years = f"{int(row['min_y'])} - {int(row['max_y'])}"
+            h_text.append(f"<b>{row['name']}</b><br>Dates: {years}")
+            lats.append(row["latitude"])
+            lons.append(row["longitude"])
+        fig.add_trace(
+            go.Scattermap(
+                lat=lats,
+                lon=lons,
+                mode="markers",
+                name=label,
+                marker=go.scattermap.Marker(size=10, color=color, opacity=0.8),
+                text=h_text,
+                hoverinfo="text",
+            )
+        )
+
+    if not map_stations.is_empty():
+        fig.update_layout(
+            map=dict(
+                style="carto-positron",
+                center=dict(
+                    lat=map_stations["latitude"].mean(),
+                    lon=map_stations["longitude"].mean(),
+                ),
+                zoom=8,
+            ),
+            margin=dict(l=0, r=0, t=50, b=10),
+            height=500,
+            title=dict(
+                text="Climate Stations", x=0.5, y=0.98, xanchor="center"
+            ),
+            legend=dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="left",
+                x=0.01,
+                bgcolor="rgba(255,255,255,0.7)",
+            ),
+        )
+    return fig

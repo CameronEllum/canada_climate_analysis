@@ -105,7 +105,6 @@ def generate_report(
     daily_df: pl.DataFrame,
     stations_df: pl.DataFrame,
     location_name: str,
-    location_coords: tuple[float, float],
     radius: float,
     show_trend: bool = False,
     shade_deviation: bool = False,
@@ -145,7 +144,7 @@ def generate_report(
     )
 
     # Create station map
-    fig_map = create_station_map(stations_df, location_coords)
+    fig_map = create_station_map(stations_df, daily_df)
 
     html_sections = [
         fig_temp.to_html(
