@@ -508,8 +508,8 @@ def generate_report(
                     if stats is not None
                     else [],
                     width=0,
-                    thickness=1,
-                    color="rgba(0, 0, 0, 0.15)",
+                    thickness=2,
+                    color="rgba(0, 0, 0, 0.35)",
                 ),
                 showlegend=(m_idx == 1),
                 hoverinfo="skip",
@@ -550,7 +550,16 @@ def generate_report(
                     cmid=0,
                     line=dict(width=1, color="white"),
                     colorbar=(
-                        dict(title="Anomaly (°C)", x=1.05, thickness=12)
+                        dict(
+                            title=dict(text="Anomaly (°C)", side="top"),
+                            orientation="h",
+                            x=0.5,
+                            y=-0.18,
+                            yanchor="top",
+                            xanchor="center",
+                            thickness=15,
+                            len=0.5,
+                        )
                         if (m_idx == 1 and show_anomaly)
                         else None
                     ),
@@ -559,7 +568,8 @@ def generate_report(
                 showlegend=(m_idx == 1),
                 hovertemplate=(
                     "<b>Year: %{x}</b><br>Mean: %{y:.1f}°C<br>"
-                    "Anomaly: %{customdata[4]:+.1f}°C<br>"
+                    "Anomaly: %{customdata[4]:.1f}°C "
+                    "(%{customdata[5]:.1f}%)<br>"
                     "Q1: %{customdata[0]:.1f}°C<br>"
                     "Q3: %{customdata[1]:.1f}°C<br>"
                     "<extra></extra>"
@@ -572,14 +582,19 @@ def generate_report(
             text="Monthly Temperature Analysis", x=0.5, y=0.96, xanchor="center"
         ),
         legend=dict(
-            orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5
+            orientation="v", yanchor="top", y=1, xanchor="left", x=1.02
         ),
-        margin=dict(l=60, r=200, t=80, b=120),
+        margin=dict(l=60, r=160, t=80, b=100),
+        dragmode="pan",
+        height=600,
     )
     create_modern_theme(fig_temp)
     html_sections.append(
         fig_temp.to_html(
-            full_html=False, include_plotlyjs="cdn", div_id="chart-temp"
+            full_html=False,
+            include_plotlyjs="cdn",
+            div_id="chart-temp",
+            config={"modeBarButtonsToRemove": ["select2d", "lasso2d"]},
         )
     )
 
@@ -640,32 +655,9 @@ def generate_report(
             )
         )
 
-        # Trace 1: Range
-        q3 = stats["q3"] if stats is not None else []
-        q1 = stats["q1"] if stats is not None else []
-        avg = stats["avg"] if stats is not None else []
+        # Trace 1: Range (Removed for Precipitation)
         fig_pr.add_trace(
-            go.Scatter(
-                x=x,
-                y=y,
-                mode="markers",
-                name="Spread (Q1-Q3)",
-                visible=(m_idx == 1),
-                marker=dict(size=0),
-                error_y=dict(
-                    type="data",
-                    symmetric=False,
-                    array=(q3 - avg).to_list() if stats is not None else [],
-                    arrayminus=(avg - q1).to_list()
-                    if stats is not None
-                    else [],
-                    width=0,
-                    thickness=1,
-                    color="rgba(0, 0, 0, 0.15)",
-                ),
-                showlegend=(m_idx == 1),
-                hoverinfo="skip",
-            )
+            go.Scatter(x=[], y=[], visible=False, showlegend=False)
         )
 
         # Trace 2: Trend
@@ -702,7 +694,16 @@ def generate_report(
                     cmid=0,
                     line=dict(width=1, color="white"),
                     colorbar=(
-                        dict(title="Anomaly (mm)", x=1.05, thickness=12)
+                        dict(
+                            title=dict(text="Anomaly (mm)", side="top"),
+                            orientation="h",
+                            x=0.5,
+                            y=-0.18,
+                            yanchor="top",
+                            xanchor="center",
+                            thickness=15,
+                            len=0.5,
+                        )
                         if (m_idx == 1 and show_anomaly)
                         else None
                     ),
@@ -711,7 +712,8 @@ def generate_report(
                 showlegend=(m_idx == 1),
                 hovertemplate=(
                     "<b>Year: %{x}</b><br>Total: %{y:.1f} mm<br>"
-                    "Anomaly: %{customdata[4]:+.1f} mm<br>"
+                    "Anomaly: %{customdata[4]:.1f} mm "
+                    "(%{customdata[5]:.1f}%)<br>"
                     "Q1: %{customdata[0]:.1f} mm<br>"
                     "Q3: %{customdata[1]:.1f} mm<br>"
                     "<extra></extra>"
@@ -727,14 +729,19 @@ def generate_report(
             xanchor="center",
         ),
         legend=dict(
-            orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5
+            orientation="v", yanchor="top", y=1, xanchor="left", x=1.02
         ),
-        margin=dict(l=60, r=200, t=80, b=120),
+        margin=dict(l=60, r=160, t=80, b=100),
+        dragmode="pan",
+        height=600,
     )
     create_modern_theme(fig_pr)
     html_sections.append(
         fig_pr.to_html(
-            full_html=False, include_plotlyjs=False, div_id="chart-precip"
+            full_html=False,
+            include_plotlyjs=False,
+            div_id="chart-precip",
+            config={"modeBarButtonsToRemove": ["select2d", "lasso2d"]},
         )
     )
 
