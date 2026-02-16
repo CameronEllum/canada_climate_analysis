@@ -33,9 +33,6 @@ logger = logging.getLogger(__name__)
 @click.option("--end-year", default=None, type=int, help="End year")
 @click.option("--trend/--no-trend", default=True, help="Show trendlines")
 @click.option(
-    "--std-dev/--no-std-dev", default=False, help="Shade standard deviation"
-)
-@click.option(
     "--show-anomaly/--no-anomaly",
     default=True,
     help="Show anomaly plot (default: True)",
@@ -91,7 +88,6 @@ def main(
     start_year: int,
     end_year: int,
     trend: bool,
-    std_dev: bool,
     show_anomaly: bool,
     max_temp: bool,
     min_temp: bool,
@@ -173,7 +169,6 @@ def main(
         normalized_locations,
         radius,
         trend,
-        std_dev,
         show_anomaly,
         max_temp,
         min_temp,

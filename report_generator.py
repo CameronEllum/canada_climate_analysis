@@ -92,7 +92,6 @@ def render_template(
     num_ribbons: int,
     num_locations: int,
     show_trend: bool,
-    shade_deviation: bool,
 ) -> str:
     """Render the HTML report using Jinja2."""
     template_path = Path(__file__).parent / "template.html"
@@ -113,7 +112,6 @@ def render_template(
         num_ribbons=num_ribbons,
         num_locations=num_locations,
         show_trend=show_trend,
-        show_dev=shade_deviation,
     )
 
 
@@ -123,7 +121,6 @@ def generate_report(
     locations: list[str],
     radius: float,
     show_trend: bool = False,
-    std_dev: bool = False,
     show_anomaly: bool = True,
     max_temp: bool = False,
     min_temp: bool = False,
@@ -178,7 +175,6 @@ def generate_report(
         merged_df,
         period_labels,
         show_trend,
-        std_dev,
         show_anomaly,
         max_temp,
         min_temp,
@@ -192,7 +188,6 @@ def generate_report(
         merged_df,
         period_labels,
         show_trend,
-        std_dev,
         show_anomaly,
         locations=locations,
         period_type=period,
@@ -222,10 +217,10 @@ def generate_report(
     ]
 
     # Each location adds:
-    # Temperature: 1 shading, (2 * num_ribbons) traces, 1 trend, 1 obs
+    # Temperature: (2 * num_ribbons) traces, 1 trend, 1 obs
     # Precipitation: 1 trend, 1 obs
     ribbon_pairs = [p for p in ribbon_percentiles if p < 50]
-    traces_per_loc_temp = 1 + 2 * len(ribbon_pairs) + 1 + 1
+    traces_per_loc_temp = 2 * len(ribbon_pairs) + 1 + 1
     traces_per_month_temp = traces_per_loc_temp * len(locations)
 
     traces_per_loc_precip = 2
@@ -241,5 +236,4 @@ def generate_report(
         len(ribbon_pairs),
         len(locations),
         show_trend,
-        std_dev,
     )

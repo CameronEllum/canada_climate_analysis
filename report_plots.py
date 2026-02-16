@@ -122,36 +122,7 @@ def _add_anomaly_columns(stats: pl.DataFrame) -> pl.DataFrame:
         )
 
 
-def _create_shading_trace(
-    x: list,
-    y: list,
-    p_idx: int,
-    std_dev: bool,
-    fillcolor: str,
-) -> go.Scatter:
-    """Create standard deviation shading trace."""
-    y_upper, y_lower = [], []
-    if x and y:
-        x_vals = [float(xi) for xi in x]
-        trend_y = calculate_trendline(x_vals, y)
-        if trend_y:
-            resids = [yi - tyi for yi, tyi in zip(y, trend_y) if yi is not None]
-            if resids:
-                std_resid = (sum(r**2 for r in resids) / len(resids)) ** 0.5
-                y_upper = [ty + std_resid for ty in trend_y]
-                y_lower = [ty - std_resid for ty in trend_y]
-
-    return go.Scatter(
-        x=x + x[::-1],
-        y=y_upper + y_lower[::-1],
-        fill="toself",
-        fillcolor=fillcolor,
-        line=dict(color="rgba(0,0,0,0)"),
-        name="Std Dev (Trend-rel.)",
-        visible=(p_idx == 1 and std_dev),
-        showlegend=std_dev,
-        hoverinfo="skip",
-    )
+# Standard deviation shading removed as per request
 
 
 def _create_trend_trace(
@@ -177,7 +148,6 @@ def create_temperature_plot(
     merged_df: pl.DataFrame,
     period_labels: list[str],
     show_trend: bool,
-    std_dev: bool,
     show_anomaly: bool,
     max_temp: bool = False,
     min_temp: bool = False,
@@ -242,17 +212,13 @@ def create_temperature_plot(
             color = colors[i % len(colors)]
             loc_prefix = f"{loc.split(',')[0]} - " if len(locations) > 1 else ""
 
+            # Shading color logic (retained for ribbons if needed)
             shading_color = color.replace("#", "")
             r, g, b = (
                 int(shading_color[:2], 16),
                 int(shading_color[2:4], 16),
                 int(shading_color[4:], 16),
             )
-            faint_color = f"rgba({r}, {g}, {b}, 0.08)"
-
-            sh_trace = _create_shading_trace(x, y, p_idx, std_dev, faint_color)
-            sh_trace.name = f"{loc_prefix}{sh_trace.name}"
-            fig.add_trace(sh_trace)
 
             # Ribbons: symmetric pairs
             if percentiles is None:
@@ -289,7 +255,7 @@ def create_temperature_plot(
                 # Ribbon fill (Bottom)
                 # Outer label for legend
                 outer_low, outer_high = ribbon_pairs[0]
-                label = f"{loc_prefix}Spread ({outer_low}-{outer_high}th)"
+                label = f"{loc_prefix}Percentiles"
                 fig.add_trace(
                     go.Scatter(
                         x=x,
@@ -379,7 +345,6 @@ def create_precipitation_plot(
     merged_df: pl.DataFrame,
     period_labels: list[str],
     show_trend: bool,
-    std_dev: bool,
     show_anomaly: bool,
     locations: list[str] = None,
     period_type: str = "monthly",
