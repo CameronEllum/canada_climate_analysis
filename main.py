@@ -71,8 +71,8 @@ logger = logging.getLogger(__name__)
 @click.option(
     "--cache",
     "cache_path",
-    default="climate_cache_new.sq3",
-    help="Path to SQLite cache (default: climate_cache_new.sq3)",
+    default="climate_cache.sq3",
+    help="Path to SQLite cache (default: climate_cache.sq3)",
 )
 @click.option(
     "--cache-requests/--no-cache-requests",
