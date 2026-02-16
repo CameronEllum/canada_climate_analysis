@@ -113,7 +113,7 @@ def _create_trend_trace(
         mode="lines",
         name="Linear Trend",
         visible=(month_idx == 1 and show_trend),
-        line=dict(width=2.5, color="#e74c3c", dash="dash"),
+        line=dict(width=1, color="red"),
         showlegend=(month_idx == 1 and show_trend),
         hoverinfo="skip",
     )
@@ -220,8 +220,10 @@ def create_temperature_plot(
                     "<b>Year: %{x}</b><br>Mean: %{y:.1f}°C<br>"
                     "Anomaly: %{customdata[4]:.1f}°C "
                     "(%{customdata[5]:.1f}%)<br>"
-                    "Q1: %{customdata[0]:.1f}°C<br>"
-                    "Q3: %{customdata[1]:.1f}°C<br>"
+                    "Minimum: %{customdata[2]:.1f}°C<br>"
+                    "Maximum: %{customdata[3]:.1f}°C<br>"
+                    "25th Percentile: %{customdata[0]:.1f}°C<br>"
+                    "75th Percentile: %{customdata[1]:.1f}°C<br>"
                     "<extra></extra>"
                 ),
             )
@@ -321,8 +323,10 @@ def create_precipitation_plot(
                     "<b>Year: %{x}</b><br>Total: %{y:.1f} mm<br>"
                     "Anomaly: %{customdata[4]:.1f} mm "
                     "(%{customdata[5]:.1f}%)<br>"
-                    "Q1: %{customdata[0]:.1f} mm<br>"
-                    "Q3: %{customdata[1]:.1f} mm<br>"
+                    "Minimum: %{customdata[2]:.1f} mm<br>"
+                    "Maximum: %{customdata[3]:.1f} mm<br>"
+                    "25th Percentile: %{customdata[0]:.1f} mm<br>"
+                    "75th Percentile: %{customdata[1]:.1f} mm<br>"
                     "<extra></extra>"
                 ),
             )
