@@ -210,7 +210,7 @@ def create_temperature_plot(
                     thickness=2,
                     color="rgba(0, 0, 0, 0.35)",
                 ),
-                showlegend=(m_idx == 1),
+                showlegend=True,
                 hoverinfo="skip",
             )
         )
@@ -254,7 +254,7 @@ def create_temperature_plot(
                     else None,
                 ),
                 line=dict(width=1, color="rgba(0,0,0,0.2)"),
-                showlegend=(m_idx == 1),
+                showlegend=True,
                 hovertemplate=(
                     "<b>Year: %{x}</b><br>Mean: %{y:.1f}°C<br>"
                     "Median: %{customdata[5]:.1f}°C<br>"
@@ -371,7 +371,7 @@ def create_precipitation_plot(
                     else None,
                 ),
                 line=dict(width=1, color="rgba(0,0,0,0.2)"),
-                showlegend=(m_idx == 1),
+                showlegend=True,
                 hovertemplate=(
                     "<b>Year: %{x}</b><br>Total: %{y:.1f} mm<br>"
                     "Median: %{customdata[5]:.1f} mm<br>"

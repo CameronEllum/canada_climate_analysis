@@ -8,10 +8,11 @@ from pathlib import Path
 import jinja2
 import plotly.graph_objects as go
 import polars as pl
+from scipy import stats
 
 
 def calculate_trendline(x: list[float], y: list[float]) -> list[float] | None:
-    """Calculate simple linear trendline.
+    """Calculate simple linear trendline using scipy.
 
     Filters out None values from the input data before calculating the trend.
     Returns None if insufficient valid data points remain.
@@ -28,18 +29,10 @@ def calculate_trendline(x: list[float], y: list[float]) -> list[float] | None:
     # Unzip the valid pairs
     x_valid, y_valid = zip(*valid_pairs)
 
-    n = len(x_valid)
-    sum_x = sum(x_valid)
-    sum_y = sum(y_valid)
-    sum_xy = sum(xi * yi for xi, yi in zip(x_valid, y_valid))
-    sum_x2 = sum(xi**2 for xi in x_valid)
-
-    denom = n * sum_x2 - sum_x**2
-    if abs(denom) < 1e-10:
-        return None
-
-    slope = (n * sum_xy - sum_x * sum_y) / denom
-    intercept = (sum_y - slope * sum_x) / n
+    # Use scipy's linregress for robust linear regression
+    result = stats.linregress(x_valid, y_valid)
+    slope = result.slope
+    intercept = result.intercept
 
     # Return trend values for ALL original x values (including those with None y)
     return [slope * xi + intercept for xi in x]
