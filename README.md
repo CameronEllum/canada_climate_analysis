@@ -2,6 +2,12 @@
 
 This application downloads daily climate data from MSC GeoMet and generates HTML reports featuring temperature and precipitation anomalies, trendlines, and station maps. It uses SQLite for structured data caching and HTTP caching to minimize redundant API requests.
 
+## Example
+
+An example report is at https://cameronellum.github.io/canada_climate_analysis/reports/climate_report_monthly_1925-2026_calgary.html.
+
+<img width="1059" height="2288" alt="image" src="https://github.com/user-attachments/assets/11792e0e-1df6-4d6e-b5be-f42449e54215" />
+
 ## Prerequisites
 
 - Python 3.14 or higher
@@ -61,9 +67,6 @@ uv run main.py --location "Winnipeg" --min
 | `--max` | Analyze maximum daily temperatures instead of mean. | `False` |
 | `--min` | Analyze minimum daily temperatures instead of mean. | `False` |
 
-## Example Output
-
-<img width="1059" height="2288" alt="image" src="https://github.com/user-attachments/assets/11792e0e-1df6-4d6e-b5be-f42449e54215" />
 
 
 ## Data Sources
