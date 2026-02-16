@@ -15,6 +15,7 @@ def aggregate_data(
     max_temp: bool = False,
     min_temp: bool = False,
     period: str = "monthly",
+    percentiles: list[int] | None = None,
 ) -> pl.DataFrame:
     """Aggregate daily data to monthly statistics.
 
@@ -54,20 +55,31 @@ def aggregate_data(
         .otherwise(pl.lit(1))
     )
 
+    # Ensure hover-required percentiles are included
+    required = {0, 25, 50, 75, 100}
+    p_set = sorted(
+        list(
+            set([(100 - p) for p in percentiles])  # Percentiles above the mean
+            | set(percentiles)  # Percentiles below the mean
+            | required  # Required percentiles
+        )
+    )
+
+    agg_exprs = [
+        pl.col(target_col).mean().alias("temp_mean"),
+        pl.col(min_col).min().alias("temp_min_abs"),
+        pl.col(max_col).max().alias("temp_max_abs"),
+        pl.col("precip").sum().alias("precip_total"),
+    ]
+
+    for p in p_set:
+        q = p / 100
+        agg_exprs.append(pl.col(target_col).quantile(q).alias(f"temp_p{p}"))
+        agg_exprs.append(pl.col("precip").quantile(q).alias(f"precip_p{p}"))
+
     return df.group_by(
         ["requested_location", "station_id", "year", "period_idx"]
-    ).agg(
-        [
-            pl.col(target_col).mean().alias("temp_mean"),
-            pl.col(min_col).min().alias("temp_min_abs"),
-            pl.col(max_col).max().alias("temp_max_abs"),
-            pl.col("precip").sum().alias("precip_total"),
-            pl.col(target_col).quantile(0.25).alias("temp_q1"),
-            pl.col(target_col).quantile(0.75).alias("temp_q3"),
-            pl.col("precip").quantile(0.25).alias("precip_q1"),
-            pl.col("precip").quantile(0.75).alias("precip_q3"),
-        ]
-    )
+    ).agg(agg_exprs)
 
 
 def render_template(
@@ -110,6 +122,7 @@ def generate_report(
     max_temp: bool = False,
     min_temp: bool = False,
     period: str = "monthly",
+    ribbon_percentiles: list[int] | None = None,
 ) -> str:
     """Aggregate daily data to period and generate HTML report."""
     # Import here to avoid circular dependency
@@ -117,8 +130,16 @@ def generate_report(
     from report_plots import create_station_map
     from report_plots import create_temperature_plot
 
+    if ribbon_percentiles is None:
+        ribbon_percentiles = list(range(0, 101, 5))
+
     merged_df = aggregate_data(
-        daily_df, stations_df, max_temp, min_temp, period
+        daily_df,
+        stations_df,
+        max_temp,
+        min_temp,
+        period,
+        percentiles=ribbon_percentiles,
     )
 
     if period == "monthly":
@@ -157,6 +178,7 @@ def generate_report(
         min_temp,
         locations=locations,
         period_type=period,
+        percentiles=ribbon_percentiles,
     )
 
     # Create precipitation plot
@@ -193,8 +215,13 @@ def generate_report(
         ),
     ]
 
-    # Each location adds 4 traces (shading, range, trend, main)
-    traces_per_month = 4 * len(locations)
+    # Each location adds:
+    # 1 shading
+    # 2 traces per symmetric ribbon pair (boundary + fill)
+    # 1 trend
+    # 1 obs
+    ribbon_pairs = [p for p in ribbon_percentiles if p < 50]
+    traces_per_month = (1 + 2 * len(ribbon_pairs) + 1 + 1) * len(locations)
 
     return render_template(
         locations,

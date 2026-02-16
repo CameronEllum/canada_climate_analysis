@@ -72,36 +72,34 @@ def _calculate_period_stats(
     if p_df.is_empty():
         return None
 
+    prefix = "temp_" if metric == "temperature" else "precip_"
+    p_cols = [c for c in p_df.columns if c.startswith(f"{prefix}p")]
+
+    agg_exprs = []
     if metric == "temperature":
-        return (
-            p_df.group_by("year")
-            .agg(
-                [
-                    pl.col("temp_mean").mean().alias("avg"),
-                    pl.col("temp_mean").median().alias("median"),
-                    pl.col("temp_q1").mean().alias("q1"),
-                    pl.col("temp_q3").mean().alias("q3"),
-                    pl.col("temp_min_abs").min().alias("min"),
-                    pl.col("temp_max_abs").max().alias("max"),
-                ]
-            )
-            .sort("year")
+        agg_exprs.extend(
+            [
+                pl.col("temp_mean").mean().alias("avg"),
+                pl.col("temp_mean").median().alias("median"),
+                pl.col("temp_min_abs").min().alias("min"),
+                pl.col("temp_max_abs").max().alias("max"),
+            ]
         )
     else:  # precipitation
-        return (
-            p_df.group_by("year")
-            .agg(
-                [
-                    pl.col("precip_total").mean().alias("avg"),
-                    pl.col("precip_total").median().alias("median"),
-                    pl.col("precip_q1").mean().alias("q1"),
-                    pl.col("precip_q3").mean().alias("q3"),
-                    pl.col("precip_total").min().alias("min"),
-                    pl.col("precip_total").max().alias("max"),
-                ]
-            )
-            .sort("year")
+        agg_exprs.extend(
+            [
+                pl.col("precip_total").mean().alias("avg"),
+                pl.col("precip_total").median().alias("median"),
+                pl.col("precip_total").min().alias("min"),
+                pl.col("precip_total").max().alias("max"),
+            ]
         )
+
+    for c in p_cols:
+        p_val = c.split("p")[-1]
+        agg_exprs.append(pl.col(c).mean().alias(f"p{p_val}"))
+
+    return p_df.group_by("year").agg(agg_exprs).sort("year")
 
 
 def _add_anomaly_columns(stats: pl.DataFrame) -> pl.DataFrame:
@@ -185,6 +183,7 @@ def create_temperature_plot(
     min_temp: bool = False,
     locations: list[str] = None,
     period_type: str = "monthly",
+    percentiles: list[int] | None = None,
 ) -> go.Figure:
     """Create temperature analysis plot."""
     fig = go.Figure()
@@ -234,7 +233,7 @@ def create_temperature_plot(
             )
             c_data = (
                 stats_df[
-                    ["q1", "q3", "min", "max", "anomaly", "median", "trend"]
+                    ["p25", "p75", "min", "max", "anomaly", "median", "trend"]
                 ].rows()
                 if stats_df is not None
                 else []
@@ -255,34 +254,57 @@ def create_temperature_plot(
             sh_trace.name = f"{loc_prefix}{sh_trace.name}"
             fig.add_trace(sh_trace)
 
-            q3 = stats_df["q3"] if stats_df is not None else []
-            q1 = stats_df["q1"] if stats_df is not None else []
-            avg = stats_df["avg"] if stats_df is not None else []
-            fig.add_trace(
-                go.Scatter(
-                    x=x,
-                    y=y,
-                    mode="markers",
-                    name=f"{loc_prefix}Spread (Q1-Q3)",
-                    visible=(p_idx == 1),
-                    marker=dict(size=0),
-                    error_y=dict(
-                        type="data",
-                        symmetric=False,
-                        array=(q3 - avg).to_list()
-                        if stats_df is not None
-                        else [],
-                        arrayminus=(avg - q1).to_list()
-                        if stats_df is not None
-                        else [],
-                        width=0,
-                        thickness=1,
-                        color="rgba(0, 0, 0, 0.25)",
-                    ),
-                    showlegend=True,
-                    hoverinfo="skip",
-                )
+            # Ribbons: symmetric pairs
+            if percentiles is None:
+                percentiles = list(range(0, 101, 5))
+            ribbon_pairs = sorted(
+                [(p, 100 - p) for p in percentiles if p < 50], reverse=True
             )
+            rib_grp = f"ribbons_{i}_{p_idx}"
+
+            for low_p_val, high_p_val in sorted(ribbon_pairs, reverse=False):
+                low_p = f"p{low_p_val}"
+                high_p = f"p{high_p_val}"
+                y_high = (
+                    stats_df[high_p].to_list() if stats_df is not None else []
+                )
+                y_low = (
+                    stats_df[low_p].to_list() if stats_df is not None else []
+                )
+
+                # Ribbon boundary (Top)
+                fig.add_trace(
+                    go.Scatter(
+                        x=x,
+                        y=y_high,
+                        mode="lines",
+                        line=dict(color="rgba(0,0,0,0)"),
+                        showlegend=False,
+                        legendgroup=rib_grp,
+                        visible=(p_idx == 1),
+                        hoverinfo="skip",
+                    )
+                )
+
+                # Ribbon fill (Bottom)
+                # Outer label for legend
+                outer_low, outer_high = ribbon_pairs[0]
+                label = f"{loc_prefix}Spread ({outer_low}-{outer_high}th)"
+                fig.add_trace(
+                    go.Scatter(
+                        x=x,
+                        y=y_low,
+                        mode="lines",
+                        fill="tonexty",
+                        fillcolor=f"rgba({r}, {g}, {b}, 0.05)",
+                        line=dict(color="rgba(0,0,0,0)"),
+                        name=label,
+                        legendgroup=rib_grp,
+                        visible=(p_idx == 1),
+                        showlegend=(low_p_val == outer_low),
+                        hoverinfo="skip",
+                    )
+                )
 
             t_trace = _create_trend_trace(x, y, p_idx, show_trend)
             t_trace.name = f"{loc_prefix}{t_trace.name}"
@@ -402,7 +424,7 @@ def create_precipitation_plot(
             )
             c_data = (
                 stats_df[
-                    ["q1", "q3", "min", "max", "anomaly", "median", "trend"]
+                    ["p25", "p75", "min", "max", "anomaly", "median", "trend"]
                 ].rows()
                 if stats_df is not None
                 else []
@@ -410,22 +432,6 @@ def create_precipitation_plot(
 
             color = colors[i % len(colors)]
             loc_prefix = f"{loc.split(',')[0]} - " if len(locations) > 1 else ""
-
-            shading_color = color.replace("#", "")
-            r, g, b = (
-                int(shading_color[:2], 16),
-                int(shading_color[2:4], 16),
-                int(shading_color[4:], 16),
-            )
-            faint_color = f"rgba({r}, {g}, {b}, 0.08)"
-
-            sh_trace = _create_shading_trace(x, y, p_idx, std_dev, faint_color)
-            sh_trace.name = f"{loc_prefix}{sh_trace.name}"
-            fig.add_trace(sh_trace)
-
-            fig.add_trace(
-                go.Scatter(x=[], y=[], visible=False, showlegend=False)
-            )
 
             t_trace = _create_trend_trace(x, y, p_idx, show_trend)
             t_trace.name = f"{loc_prefix}{t_trace.name}"

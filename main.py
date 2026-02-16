@@ -79,6 +79,12 @@ logger = logging.getLogger(__name__)
     default=False,
     help="Enable HTTP requests caching (default: False)",
 )
+@click.option(
+    "--percentiles",
+    "percentiles_str",
+    default="0,5,10,15,20,25,30,35,40,45,50",
+    help="Comma-separated percentile integers for ribbons (default: 0,5,...,50)",
+)
 def main(
     location: tuple[str, ...],
     radius: float,
@@ -92,6 +98,7 @@ def main(
     period: str,
     cache_path: str,
     cache_requests: bool,
+    percentiles_str: str,
 ) -> None:
     """Generate climate analysis report for multiple locations."""
     if end_year is None:
@@ -151,6 +158,15 @@ def main(
         )
         show_anomaly = False
 
+    # Parse percentiles
+    try:
+        percentiles = [int(p.strip()) for p in percentiles_str.split(",")]
+    except ValueError:
+        logger.error(
+            "Invalid percentiles format. Use comma-separated integers."
+        )
+        sys.exit(1)
+
     report = generate_report(
         daily_df,
         combined_stations_df,
@@ -162,6 +178,7 @@ def main(
         max_temp,
         min_temp,
         period=period,
+        ribbon_percentiles=percentiles,
     )
 
     # Create reports directory if it doesn't exist
