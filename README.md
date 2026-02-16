@@ -4,7 +4,8 @@ This application downloads daily climate data from MSC GeoMet and generates HTML
 
 ## Example
 
-An example report is at https://cameronellum.github.io/canada_climate_analysis/reports/climate_report_monthly_1925-2026_calgary.html.
+Example reports:
+- [Calgary mean monthly temperatures, 1920-current](https://cameronellum.github.io/canada_climate_analysis/reports/climate_report_monthly_1925-2026_calgary.html)
 
 <img width="1043" height="2283" alt="image" src="https://github.com/user-attachments/assets/cdb4e30d-e6f7-4ce0-bcc2-a77b82c63e1f" />
 
@@ -35,14 +36,9 @@ Data downloaded from MSC GeoMet is cached in a SQLite database for future use. H
 uv run main.py --location "Calgary"
 ```
 
-**Report with trendlines and standard deviation shading:**
-```bash
-uv run main.py --location "Toronto" --trend --std-dev
-```
-
 **Custom date range and search radius:**
 ```bash
-uv run main.py --location "Vancouver" --start-year 1980 --end-year 2023 --radius 50
+uv run main.py --location "Vancouver" --start-year 1980 --end-year 2023 --radius 25
 ```
 **Analyze maximum daily temperatures:**
 ```bash
@@ -52,6 +48,11 @@ uv run main.py --location "Edmonton" --max
 **Analyze minimum daily temperatures:**
 ```bash
 uv run main.py --location "Winnipeg" --min
+```
+
+**Compare Locations:**
+```bash
+uv run main.py --location "Calgary" --location "Edmonton" --start-year 1920 --radius 25
 ```
 
 ### CLI Options
