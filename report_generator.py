@@ -34,7 +34,7 @@ def calculate_trendline(x: list[float], y: list[float]) -> list[float] | None:
     slope = result.slope
     intercept = result.intercept
 
-    # Return trend values for ALL original x values (including those with None y)
+    # Return trend values for all x values (including those with None y)
     return [slope * xi + intercept for xi in x]
 
 
@@ -63,21 +63,30 @@ def create_modern_theme(fig: go.Figure) -> None:
 
 
 def aggregate_to_monthly(
-    daily_df: pl.DataFrame, max_temp: bool = False
+    daily_df: pl.DataFrame, max_temp: bool = False, min_temp: bool = False
 ) -> pl.DataFrame:
     """Aggregate daily data to monthly statistics.
 
-    If max_temp is True, statistics are calculated based on daily maximum temperatures.
-    Otherwise, they are based on daily mean temperatures.
+    Determines the source column based on max_temp or min_temp flags.
     """
-    target_col = "temp_max" if max_temp else "temp_mean"
-    min_col = "temp_max" if max_temp else "temp_min"
+    if max_temp:
+        target_col = "temp_max"
+        min_col = "temp_max"
+        max_col = "temp_max"
+    elif min_temp:
+        target_col = "temp_min"
+        min_col = "temp_min"
+        max_col = "temp_min"
+    else:
+        target_col = "temp_mean"
+        min_col = "temp_min"
+        max_col = "temp_max"
 
     return daily_df.group_by(["station_id", "year", "month"]).agg(
         [
             pl.col(target_col).mean().alias("temp_mean"),
             pl.col(min_col).min().alias("temp_min_abs"),
-            pl.col("temp_max").max().alias("temp_max_abs"),
+            pl.col(max_col).max().alias("temp_max_abs"),
             pl.col("precip").sum().alias("precip_total"),
             pl.col(target_col).quantile(0.25).alias("temp_q1"),
             pl.col(target_col).quantile(0.75).alias("temp_q3"),
@@ -125,9 +134,10 @@ def generate_report(
     location_name: str,
     radius: float,
     show_trend: bool = False,
-    shade_deviation: bool = False,
+    std_dev: bool = False,
     show_anomaly: bool = True,
     max_temp: bool = False,
+    min_temp: bool = False,
 ) -> str:
     """Aggregate daily data to monthly and generate HTML report."""
     # Import here to avoid circular dependency
@@ -135,7 +145,7 @@ def generate_report(
     from report_plots import create_station_map
     from report_plots import create_temperature_plot
 
-    monthly_df = aggregate_to_monthly(daily_df, max_temp)
+    monthly_df = aggregate_to_monthly(daily_df, max_temp, min_temp)
 
     months = [
         "January",
@@ -157,14 +167,15 @@ def generate_report(
         monthly_df,
         months,
         show_trend,
-        shade_deviation,
+        std_dev,
         show_anomaly,
         max_temp,
+        min_temp,
     )
 
     # Create precipitation plot
     fig_precip = create_precipitation_plot(
-        monthly_df, months, show_trend, shade_deviation, show_anomaly
+        monthly_df, months, show_trend, std_dev, show_anomaly
     )
 
     # Create station map
@@ -190,7 +201,7 @@ def generate_report(
         ),
     ]
 
-    traces_per_month = 4 if shade_deviation else 3
+    traces_per_month = 4 if std_dev else 3
 
     return render_template(
         location_name,
@@ -199,5 +210,5 @@ def generate_report(
         months,
         traces_per_month,
         show_trend,
-        shade_deviation,
+        std_dev,
     )

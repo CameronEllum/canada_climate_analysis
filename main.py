@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 @click.option("--start-year", default=1900, help="Start year")
 @click.option("--end_year", default=None, help="End year")
 @click.option("--trend/--no-trend", default=True, help="Show trendlines")
-@click.option("--shade-deviation", is_flag=True, help="Shade deviation")
+@click.option("--std-dev", is_flag=True, help="Shade deviation")
 @click.option(
     "--show-anomaly/--no-anomaly",
     default=True,
@@ -42,15 +42,22 @@ logger = logging.getLogger(__name__)
     default=False,
     help="Use maximum daily temperature (default: False)",
 )
+@click.option(
+    "--min/--no-min",
+    "min_temp",
+    default=False,
+    help="Use minimum daily temperature (default: False)",
+)
 def main(
     location: str,
     radius: float,
     start_year: int,
     end_year: int,
     trend: bool,
-    shade_deviation: bool,
+    std_dev: bool,
     show_anomaly: bool,
     max_temp: bool,
+    min_temp: bool,
 ) -> None:
     """Generate climate analysis report for a location."""
     if end_year is None:
@@ -88,9 +95,10 @@ def main(
         location,
         radius,
         trend,
-        shade_deviation,
+        std_dev,
         show_anomaly,
         max_temp,
+        min_temp,
     )
 
     fname = f"climate_report_{location.lower().replace(' ', '_')}.html"

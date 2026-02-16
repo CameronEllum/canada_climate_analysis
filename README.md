@@ -30,7 +30,7 @@ uv run main.py --location "Calgary"
 
 **Report with trendlines and standard deviation shading:**
 ```bash
-uv run main.py --location "Toronto" --trend --shade-deviation
+uv run main.py --location "Toronto" --trend --std-dev
 ```
 
 **Custom date range and search radius:**
@@ -42,6 +42,11 @@ uv run main.py --location "Vancouver" --start-year 1980 --end-year 2023 --radius
 uv run main.py --location "Edmonton" --max
 ```
 
+**Analyze minimum daily temperatures:**
+```bash
+uv run main.py --location "Winnipeg" --min
+```
+
 ### CLI Options
 
 | Option | Description | Default |
@@ -51,9 +56,10 @@ uv run main.py --location "Edmonton" --max
 | `--start-year` | Start year for data range. | `1900` |
 | `--end-year` | End year for data range. | Current year |
 | `--trend` | Include trendlines in the charts. | `True` |
-| `--shade-deviation` | Shade standard deviation in the charts. | `False` |
+| `--std-dev` | Shade standard deviation in the charts. | `False` |
 | `--show-anomaly` | Show anomaly heatmap coloring. | `True` |
 | `--max` | Analyze maximum daily temperatures instead of mean. | `False` |
+| `--min` | Analyze minimum daily temperatures instead of mean. | `False` |
 
 ## Example Output
 

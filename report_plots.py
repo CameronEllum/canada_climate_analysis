@@ -97,7 +97,7 @@ def _create_shading_trace(
     x: list,
     y: list,
     month_idx: int,
-    shade_deviation: bool,
+    std_dev: bool,
     fillcolor: str,
 ) -> go.Scatter:
     """Create standard deviation shading trace."""
@@ -120,8 +120,8 @@ def _create_shading_trace(
         fillcolor=fillcolor,
         line=dict(color="rgba(0,0,0,0)"),
         name="Std Dev (Trend-rel.)",
-        visible=(month_idx == 1 and shade_deviation),
-        showlegend=shade_deviation,
+        visible=(month_idx == 1 and std_dev),
+        showlegend=std_dev,
         hoverinfo="skip",
     )
 
@@ -149,13 +149,22 @@ def create_temperature_plot(
     monthly_df: pl.DataFrame,
     months: list[str],
     show_trend: bool,
-    shade_deviation: bool,
+    std_dev: bool,
     show_anomaly: bool,
     max_temp: bool = False,
+    min_temp: bool = False,
 ) -> go.Figure:
     """Create temperature analysis plot."""
     fig = go.Figure()
-    mean_label = "Mean Max" if max_temp else "Mean"
+    if max_temp:
+        mean_label = "Mean Max"
+        title_text = "Monthly Maximum Temperature Analysis"
+    elif min_temp:
+        mean_label = "Mean Min"
+        title_text = "Monthly Minimum Temperature Analysis"
+    else:
+        mean_label = "Mean"
+        title_text = "Monthly Temperature Analysis"
 
     for m_idx in range(1, 13):
         stats = _calculate_monthly_stats(monthly_df, m_idx, "temperature")
@@ -185,7 +194,7 @@ def create_temperature_plot(
         # Trace 0: Shading
         fig.add_trace(
             _create_shading_trace(
-                x, y, m_idx, shade_deviation, "rgba(200, 200, 200, 0.15)"
+                x, y, m_idx, std_dev, "rgba(200, 200, 200, 0.15)"
             )
         )
 
@@ -271,11 +280,6 @@ def create_temperature_plot(
             )
         )
 
-    title_text = (
-        "Monthly Maximum Temperature Analysis"
-        if max_temp
-        else "Monthly Temperature Analysis"
-    )
     fig.update_layout(
         title=dict(
             text=title_text,
@@ -298,7 +302,7 @@ def create_precipitation_plot(
     monthly_df: pl.DataFrame,
     months: list[str],
     show_trend: bool,
-    shade_deviation: bool,
+    std_dev: bool,
     show_anomaly: bool,
 ) -> go.Figure:
     """Create precipitation analysis plot."""
@@ -332,7 +336,7 @@ def create_precipitation_plot(
         # Trace 0: Shading
         fig.add_trace(
             _create_shading_trace(
-                x, y, m_idx, shade_deviation, "rgba(100, 150, 200, 0.1)"
+                x, y, m_idx, std_dev, "rgba(100, 150, 200, 0.1)"
             )
         )
 
