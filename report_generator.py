@@ -6,64 +6,14 @@ import datetime
 from pathlib import Path
 
 import jinja2
-import plotly.graph_objects as go
 import polars as pl
-from scipy import stats
-
-
-def calculate_trendline(x: list[float], y: list[float]) -> list[float] | None:
-    """Calculate simple linear trendline using scipy.
-
-    Filters out None values from the input data before calculating the trend.
-    Returns None if insufficient valid data points remain.
-    """
-    if len(x) < 2 or len(y) < 2 or len(x) != len(y):
-        return None
-
-    # Filter out None values
-    valid_pairs = [(xi, yi) for xi, yi in zip(x, y) if yi is not None]
-
-    if len(valid_pairs) < 2:
-        return None
-
-    # Unzip the valid pairs
-    x_valid, y_valid = zip(*valid_pairs)
-
-    # Use scipy's linregress for robust linear regression
-    result = stats.linregress(x_valid, y_valid)
-    slope = result.slope
-    intercept = result.intercept
-
-    # Return trend values for all x values (including those with None y)
-    return [slope * xi + intercept for xi in x]
-
-
-def create_modern_theme(fig: go.Figure) -> None:
-    """Apply a clean, modern theme."""
-    fig.update_layout(
-        plot_bgcolor="white",
-        paper_bgcolor="white",
-        font_family="Inter, sans-serif",
-        font_size=12,
-        xaxis=dict(
-            showgrid=True,
-            gridcolor="#f0f0f0",
-            linecolor="#333",
-            linewidth=1,
-            ticks="outside",
-        ),
-        yaxis=dict(
-            showgrid=True,
-            gridcolor="#f0f0f0",
-            linecolor="#333",
-            linewidth=1,
-            ticks="outside",
-        ),
-    )
 
 
 def aggregate_to_monthly(
-    daily_df: pl.DataFrame, max_temp: bool = False, min_temp: bool = False
+    daily_df: pl.DataFrame,
+    stations_df: pl.DataFrame,
+    max_temp: bool = False,
+    min_temp: bool = False,
 ) -> pl.DataFrame:
     """Aggregate daily data to monthly statistics.
 
@@ -82,7 +32,16 @@ def aggregate_to_monthly(
         min_col = "temp_min"
         max_col = "temp_max"
 
-    return daily_df.group_by(["station_id", "year", "month"]).agg(
+    # Join with stations to get requested_location
+    df = daily_df.join(
+        stations_df.select(["id", "requested_location"]),
+        left_on="station_id",
+        right_on="id",
+    )
+
+    return df.group_by(
+        ["requested_location", "station_id", "year", "month"]
+    ).agg(
         [
             pl.col(target_col).mean().alias("temp_mean"),
             pl.col(min_col).min().alias("temp_min_abs"),
@@ -97,7 +56,7 @@ def aggregate_to_monthly(
 
 
 def render_template(
-    location_name: str,
+    locations: list[str],
     radius: float,
     html_sections: list[str],
     months: list[str],
@@ -115,8 +74,11 @@ def render_template(
         "family=Inter:wght@400;600&display=swap"
     )
 
+    # Join locations for display
+    display_location = ", ".join(locations)
+
     return jinja2.Template(template_content).render(
-        location=location_name,
+        location=display_location,
         radius=radius,
         date=datetime.date.today().isoformat(),
         plots=html_sections,
@@ -131,7 +93,7 @@ def render_template(
 def generate_report(
     daily_df: pl.DataFrame,
     stations_df: pl.DataFrame,
-    location_name: str,
+    locations: list[str],
     radius: float,
     show_trend: bool = False,
     std_dev: bool = False,
@@ -145,7 +107,7 @@ def generate_report(
     from report_plots import create_station_map
     from report_plots import create_temperature_plot
 
-    monthly_df = aggregate_to_monthly(daily_df, max_temp, min_temp)
+    monthly_df = aggregate_to_monthly(daily_df, stations_df, max_temp, min_temp)
 
     months = [
         "January",
@@ -171,11 +133,17 @@ def generate_report(
         show_anomaly,
         max_temp,
         min_temp,
+        locations=locations,
     )
 
     # Create precipitation plot
     fig_precip = create_precipitation_plot(
-        monthly_df, months, show_trend, std_dev, show_anomaly
+        monthly_df,
+        months,
+        show_trend,
+        std_dev,
+        show_anomaly,
+        locations=locations,
     )
 
     # Create station map
@@ -201,10 +169,11 @@ def generate_report(
         ),
     ]
 
-    traces_per_month = 4 if std_dev else 3
+    # Each location adds 4 traces (shading, range, trend, main)
+    traces_per_month = 4 * len(locations)
 
     return render_template(
-        location_name,
+        locations,
         radius,
         html_sections,
         months,

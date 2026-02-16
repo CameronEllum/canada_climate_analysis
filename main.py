@@ -10,6 +10,7 @@ import logging
 import sys
 
 import click
+import polars as pl
 
 from climate_cache import ClimateCache
 from msc_client import MSCClient
@@ -25,10 +26,10 @@ logger = logging.getLogger(__name__)
 
 
 @click.command()
-@click.option("--location", required=True, help="Location name")
+@click.option("--location", required=True, multiple=True, help="Location name")
 @click.option("--radius", default=100.0, help="Radius (km)")
 @click.option("--start-year", default=1900, type=int, help="Start year")
-@click.option("--end_year", default=None, type=int, help="End year")
+@click.option("--end-year", default=None, type=int, help="End year")
 @click.option("--trend/--no-trend", default=True, help="Show trendlines")
 @click.option(
     "--std-dev/--no-std-dev", default=False, help="Shade standard deviation"
@@ -56,7 +57,7 @@ logger = logging.getLogger(__name__)
     help="Enable HTTP requests caching (default: False)",
 )
 def main(
-    location: str,
+    location: tuple[str, ...],
     radius: float,
     start_year: int,
     end_year: int,
@@ -67,28 +68,50 @@ def main(
     min_temp: bool,
     cache_requests: bool,
 ) -> None:
-    """Generate climate analysis report for a location."""
+    """Generate climate analysis report for multiple locations."""
     if end_year is None:
         end_year = datetime.datetime.now().year
 
     cache = ClimateCache()
     client = MSCClient(cache, cache_requests=cache_requests)
 
-    coords = client.get_coordinates(location)
-    if not coords:
-        logger.error(f"Failed to find {location}")
+    all_stations_dfs = []
+
+    normalized_locations = []
+    for loc in location:
+        # Normalize: ensure it ends with ",Canada"
+        norm_loc = loc if loc.endswith(",Canada") else f"{loc},Canada"
+        normalized_locations.append(norm_loc)
+
+    # Deduplicate while preserving order
+    normalized_locations = list(dict.fromkeys(normalized_locations))
+
+    for norm_loc in normalized_locations:
+        coords = client.get_coordinates(norm_loc)
+        if not coords:
+            logger.warning(f"Failed to find {norm_loc}, skipping...")
+            continue
+
+        lat, lon = coords
+        logger.info(f"Location: {norm_loc} ({lat}, {lon})")
+
+        stations_df = client.find_stations_near(lat, lon, radius)
+        if not stations_df.is_empty():
+            # Add location tag to stations for report labeling
+            stations_df = stations_df.with_columns(
+                pl.lit(norm_loc).alias("requested_location")
+            )
+            all_stations_dfs.append(stations_df)
+
+    if not all_stations_dfs:
+        logger.error("No stations found for any specified location.")
         sys.exit(1)
 
-    lat, lon = coords
-    logger.info(f"Location: {location} ({lat}, {lon})")
-
-    stations_df = client.find_stations_near(lat, lon, radius)
-    if stations_df.is_empty():
-        logger.error("No stations found.")
-        sys.exit(1)
+    # Combine and unique stations
+    combined_stations_df = pl.concat(all_stations_dfs).unique(subset=["id"])
 
     daily_df = client.fetch_daily_data(
-        stations_df["id"].to_list(), start_year, end_year
+        combined_stations_df["id"].to_list(), start_year, end_year
     )
     if daily_df.is_empty():
         logger.error("No data found.")
@@ -97,10 +120,16 @@ def main(
     # Determine if anomaly coloring should be shown
     # Respect the user's explicit choice via --show-anomaly/--no-anomaly
 
+    if len(normalized_locations) > 1 and show_anomaly:
+        logger.warning(
+            "Anomaly plots are disabled when multiple locations are requested."
+        )
+        show_anomaly = False
+
     report = generate_report(
         daily_df,
-        stations_df,
-        location,
+        combined_stations_df,
+        normalized_locations,
         radius,
         trend,
         std_dev,
@@ -109,7 +138,12 @@ def main(
         min_temp,
     )
 
-    fname = f"climate_report_{location.lower().replace(' ', '_')}.html"
+    # Filename based on first location or 'multi'
+    base_name = normalized_locations[0].split(",")[0].lower().replace(" ", "_")
+    if len(normalized_locations) > 1:
+        base_name += "_and_others"
+
+    fname = f"climate_report_{base_name}.html"
     with open(fname, "w", encoding="utf-8") as f:
         f.write(report)
     logger.info(f"Report: {fname}")

@@ -4,16 +4,70 @@ from __future__ import annotations
 
 import plotly.graph_objects as go
 import polars as pl
+from scipy import stats
 
-from report_generator import calculate_trendline
-from report_generator import create_modern_theme
+
+def calculate_trendline(x: list[float], y: list[float]) -> list[float] | None:
+    """Calculate simple linear trendline using scipy.
+
+    Filters out None values from the input data before calculating the trend.
+    Returns None if insufficient valid data points remain.
+    """
+    if len(x) < 2 or len(y) < 2 or len(x) != len(y):
+        return None
+
+    # Filter out None values
+    valid_pairs = [(xi, yi) for xi, yi in zip(x, y) if yi is not None]
+
+    if len(valid_pairs) < 2:
+        return None
+
+    # Unzip the valid pairs
+    x_valid, y_valid = zip(*valid_pairs)
+
+    # Use scipy's linregress for robust linear regression
+    result = stats.linregress(x_valid, y_valid)
+    slope = result.slope
+    intercept = result.intercept
+
+    # Return trend values for all x values (including those with None y)
+    return [slope * xi + intercept for xi in x]
+
+
+def create_modern_theme(fig: go.Figure) -> None:
+    """Apply a clean, modern theme."""
+    fig.update_layout(
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        font_family="Inter, sans-serif",
+        font_size=12,
+        xaxis=dict(
+            showgrid=True,
+            gridcolor="#f0f0f0",
+            linecolor="#333",
+            linewidth=1,
+            ticks="outside",
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor="#f0f0f0",
+            linecolor="#333",
+            linewidth=1,
+            ticks="outside",
+        ),
+    )
 
 
 def _calculate_monthly_stats(
-    monthly_df: pl.DataFrame, month_idx: int, metric: str
+    monthly_df: pl.DataFrame, month_idx: int, metric: str, location: str = None
 ) -> pl.DataFrame | None:
-    """Calculate statistics for a specific month."""
-    m_df = monthly_df.filter(pl.col("month") == month_idx).sort("year")
+    """Calculate statistics for a specific month and optionally a location."""
+    m_df = monthly_df.filter(pl.col("month") == month_idx)
+
+    if location:
+        m_df = m_df.filter(pl.col("requested_location") == location)
+
+    m_df = m_df.sort("year")
 
     if m_df.is_empty():
         return None
@@ -153,9 +207,26 @@ def create_temperature_plot(
     show_anomaly: bool,
     max_temp: bool = False,
     min_temp: bool = False,
+    locations: list[str] = None,
 ) -> go.Figure:
     """Create temperature analysis plot."""
     fig = go.Figure()
+
+    if locations is None:
+        locations = ["All Stations"]
+
+    # Color palette for multiple locations
+    colors = [
+        "#2c3e50",
+        "#e74c3c",
+        "#27ae60",
+        "#2980b9",
+        "#8e44ad",
+        "#f39c12",
+        "#d35400",
+        "#16a085",
+    ]
+
     if max_temp:
         mean_label = "Mean Max"
         title_text = "Monthly Maximum Temperature Analysis"
@@ -167,118 +238,141 @@ def create_temperature_plot(
         title_text = "Monthly Temperature Analysis"
 
     for m_idx in range(1, 13):
-        stats = _calculate_monthly_stats(monthly_df, m_idx, "temperature")
-
-        if stats is not None:
-            stats = _add_anomaly_columns(stats)
-
-        x = stats["year"].to_list() if stats is not None else []
-        y = stats["avg"].to_list() if stats is not None else []
-        anom_list = stats["anomaly"].to_list() if stats is not None else []
-        c_data = (
-            stats[
-                [
-                    "q1",
-                    "q3",
-                    "min",
-                    "max",
-                    "anomaly",
-                    "median",
-                    "trend",
-                ]
-            ].rows()
-            if stats is not None
-            else []
-        )
-
-        # Trace 0: Shading
-        fig.add_trace(
-            _create_shading_trace(
-                x, y, m_idx, std_dev, "rgba(200, 200, 200, 0.15)"
+        for i, loc in enumerate(locations):
+            stats = _calculate_monthly_stats(
+                monthly_df, m_idx, "temperature", location=loc
             )
-        )
 
-        # Trace 1: Q1/Q3 Range
-        q3 = stats["q3"] if stats is not None else []
-        q1 = stats["q1"] if stats is not None else []
-        avg = stats["avg"] if stats is not None else []
-        fig.add_trace(
-            go.Scatter(
-                x=x,
-                y=y,
-                mode="markers",
-                name="Spread (Q1-Q3)",
-                visible=(m_idx == 1),
-                marker=dict(size=0),
-                error_y=dict(
-                    type="data",
-                    symmetric=False,
-                    array=(q3 - avg).to_list() if stats is not None else [],
-                    arrayminus=(avg - q1).to_list()
-                    if stats is not None
-                    else [],
-                    width=0,
-                    thickness=1,
-                    color="rgba(0, 0, 0, 0.35)",
-                ),
-                showlegend=True,
-                hoverinfo="skip",
+            if stats is not None:
+                stats = _add_anomaly_columns(stats)
+
+            x = stats["year"].to_list() if stats is not None else []
+            y = stats["avg"].to_list() if stats is not None else []
+            anom_list = stats["anomaly"].to_list() if stats is not None else []
+            c_data = (
+                stats[
+                    [
+                        "q1",
+                        "q3",
+                        "min",
+                        "max",
+                        "anomaly",
+                        "median",
+                        "trend",
+                    ]
+                ].rows()
+                if stats is not None
+                else []
             )
-        )
 
-        # Trace 2: Trendline
-        fig.add_trace(_create_trend_trace(x, y, m_idx, show_trend))
+            color = colors[i % len(colors)]
+            loc_prefix = f"{loc.split(',')[0]} - " if len(locations) > 1 else ""
 
-        # Trace 3: Main Data
-        # Replace None values with 0 for color mapping
-        m_color = (
-            [a if a is not None else 0 for a in anom_list]
-            if show_anomaly
-            else "#2c3e50"
-        )
-        m_cscale = "RdBu_r" if show_anomaly else None
-        fig.add_trace(
-            go.Scatter(
-                x=x,
-                y=y,
-                customdata=c_data,
-                mode="lines+markers",
-                name="Observations",
-                visible=(m_idx == 1),
-                marker=dict(
-                    size=8,
-                    color=m_color,
-                    colorscale=m_cscale,
-                    cmid=0,
-                    line=dict(width=1, color="white"),
-                    colorbar=dict(
-                        title=dict(text="Anomaly (°C)", side="top"),
-                        orientation="h",
-                        x=0.5,
-                        y=-0.18,
-                        yanchor="top",
-                        xanchor="center",
-                        thickness=15,
-                        len=0.5,
-                    )
-                    if show_anomaly
-                    else None,
-                ),
-                line=dict(width=1, color="rgba(0,0,0,0.2)"),
-                showlegend=True,
-                hovertemplate=(
-                    "<b>Year: %{x}</b><br>" + mean_label + ": %{y:.1f}°C<br>"
-                    "Median: %{customdata[5]:.1f}°C<br>"
-                    "Trend Mean: %{customdata[6]:.1f}°C<br>"
-                    "Mean Anomaly: %{customdata[4]:.1f}°C<br>"
-                    "Minimum: %{customdata[2]:.1f}°C<br>"
-                    "Maximum: %{customdata[3]:.1f}°C<br>"
-                    "25th Percentile: %{customdata[0]:.1f}°C<br>"
-                    "75th Percentile: %{customdata[1]:.1f}°C<br>"
-                    "<extra></extra>"
-                ),
+            # Standard shading color (rgba from our primary hex)
+            # Create a faint version of the location color
+            shading_color = color.replace("#", "")
+            r = int(shading_color[:2], 16)
+            g = int(shading_color[2:4], 16)
+            b = int(shading_color[4:], 16)
+            faint_color = f"rgba({r}, {g}, {b}, 0.08)"
+
+            # Trace 0: Shading
+            sh_trace = _create_shading_trace(x, y, m_idx, std_dev, faint_color)
+            sh_trace.name = f"{loc_prefix}{sh_trace.name}"
+            fig.add_trace(sh_trace)
+
+            # Trace 1: Q1/Q3 Range
+            q3 = stats["q3"] if stats is not None else []
+            q1 = stats["q1"] if stats is not None else []
+            avg = stats["avg"] if stats is not None else []
+            fig.add_trace(
+                go.Scatter(
+                    x=x,
+                    y=y,
+                    mode="markers",
+                    name=f"{loc_prefix}Spread (Q1-Q3)",
+                    visible=(m_idx == 1),
+                    marker=dict(size=0),
+                    error_y=dict(
+                        type="data",
+                        symmetric=False,
+                        array=(q3 - avg).to_list() if stats is not None else [],
+                        arrayminus=(avg - q1).to_list()
+                        if stats is not None
+                        else [],
+                        width=0,
+                        thickness=1,
+                        color="rgba(0, 0, 0, 0.25)",
+                    ),
+                    showlegend=True,
+                    hoverinfo="skip",
+                )
             )
-        )
+
+            # Trace 2: Trendline
+            t_trace = _create_trend_trace(x, y, m_idx, show_trend)
+            t_trace.name = f"{loc_prefix}{t_trace.name}"
+            # Use location color for trend
+            t_trace.line.color = color
+            if len(locations) > 1:
+                t_trace.line.dash = "dot"
+            fig.add_trace(t_trace)
+
+            # Trace 3: Main Data
+            # Anomaly is disabled for multiple locations in main.py
+            if show_anomaly and len(locations) == 1:
+                m_color = [a if a is not None else 0 for a in anom_list]
+                m_cscale = "RdBu_r"
+                show_colorbar = True
+            else:
+                m_color = color
+                m_cscale = None
+                show_colorbar = False
+
+            fig.add_trace(
+                go.Scatter(
+                    x=x,
+                    y=y,
+                    customdata=c_data,
+                    mode="lines+markers",
+                    name=f"{loc_prefix}Observations",
+                    visible=(m_idx == 1),
+                    marker=dict(
+                        size=8 if len(locations) > 1 else 10,
+                        color=m_color,
+                        colorscale=m_cscale,
+                        cmid=0,
+                        line=dict(width=1, color="white"),
+                        colorbar=dict(
+                            title=dict(text="Anomaly (°C)", side="top"),
+                            orientation="h",
+                            x=0.5,
+                            y=-0.18,
+                            yanchor="top",
+                            xanchor="center",
+                            thickness=15,
+                            len=0.5,
+                        )
+                        if show_colorbar
+                        else None,
+                    ),
+                    line=dict(width=1, color="rgba(0,0,0,0.2)"),
+                    showlegend=True,
+                    hovertemplate=(
+                        f"<b>{loc}</b><br>"
+                        f"<b>Year: %{{x}}</b><br>"
+                        f"{mean_label}: %{{y:.1f}}°C<br>"
+                        f"Median: %{{customdata[5]:.1f}}°C<br>"
+                        f"Trend Mean: %{{customdata[6]:.1f}}°C<br>"
+                        f"Mean Anomaly: %{{customdata[4]:.1f}}°C<br>"
+                        f"Minimum: %{{customdata[2]:.1f}}°C<br>"
+                        f"Maximum: %{{customdata[3]:.1f}}°C<br>"
+                        f"25th Percentile: %{{customdata[0]:.1f}}°C<br>"
+                        f"75th Percentile: %{{customdata[1]:.1f}}°C<br>"
+                        f"<extra></extra>"
+                    ),
+                )
+            )
 
     fig.update_layout(
         title=dict(
@@ -304,98 +398,137 @@ def create_precipitation_plot(
     show_trend: bool,
     std_dev: bool,
     show_anomaly: bool,
+    locations: list[str] = None,
 ) -> go.Figure:
     """Create precipitation analysis plot."""
     fig = go.Figure()
 
+    if locations is None:
+        locations = ["All Stations"]
+
+    colors = [
+        "#1a5fb4",
+        "#e74c3c",
+        "#27ae60",
+        "#2980b9",
+        "#8e44ad",
+        "#f39c12",
+        "#d35400",
+        "#16a085",
+    ]
+
     for m_idx in range(1, 13):
-        stats = _calculate_monthly_stats(monthly_df, m_idx, "precipitation")
-
-        if stats is not None:
-            stats = _add_anomaly_columns(stats)
-
-        x = stats["year"].to_list() if stats is not None else []
-        y = stats["avg"].to_list() if stats is not None else []
-        anom_list = stats["anomaly"].to_list() if stats is not None else []
-        c_data = (
-            stats[
-                [
-                    "q1",
-                    "q3",
-                    "min",
-                    "max",
-                    "anomaly",
-                    "median",
-                    "trend",
-                ]
-            ].rows()
-            if stats is not None
-            else []
-        )
-
-        # Trace 0: Shading
-        fig.add_trace(
-            _create_shading_trace(
-                x, y, m_idx, std_dev, "rgba(100, 150, 200, 0.1)"
+        for i, loc in enumerate(locations):
+            stats = _calculate_monthly_stats(
+                monthly_df, m_idx, "precipitation", location=loc
             )
-        )
 
-        # Trace 1: Range (Removed for Precipitation)
-        fig.add_trace(go.Scatter(x=[], y=[], visible=False, showlegend=False))
+            if stats is not None:
+                stats = _add_anomaly_columns(stats)
 
-        # Trace 2: Trend
-        fig.add_trace(_create_trend_trace(x, y, m_idx, show_trend))
-
-        # Trace 3: Main
-        # Replace None values with 0 for color mapping
-        m_color = (
-            [a if a is not None else 0 for a in anom_list]
-            if show_anomaly
-            else "#1a5fb4"
-        )
-        m_cscale = "BrBG" if show_anomaly else None
-        fig.add_trace(
-            go.Scatter(
-                x=x,
-                y=y,
-                customdata=c_data,
-                mode="lines+markers",
-                name="Observations",
-                visible=(m_idx == 1),
-                marker=dict(
-                    size=8,
-                    color=m_color,
-                    colorscale=m_cscale,
-                    cmid=0,
-                    line=dict(width=1, color="white"),
-                    colorbar=dict(
-                        title=dict(text="Anomaly (mm)", side="top"),
-                        orientation="h",
-                        x=0.5,
-                        y=-0.18,
-                        yanchor="top",
-                        xanchor="center",
-                        thickness=15,
-                        len=0.5,
-                    )
-                    if show_anomaly
-                    else None,
-                ),
-                line=dict(width=1, color="rgba(0,0,0,0.2)"),
-                showlegend=True,
-                hovertemplate=(
-                    "<b>Year: %{x}</b><br>Total: %{y:.1f} mm<br>"
-                    "Median: %{customdata[5]:.1f} mm<br>"
-                    "Trend Mean: %{customdata[6]:.1f} mm<br>"
-                    "Mean Anomaly: %{customdata[4]:.1f} mm<br>"
-                    "Minimum: %{customdata[2]:.1f} mm<br>"
-                    "Maximum: %{customdata[3]:.1f} mm<br>"
-                    "25th Percentile: %{customdata[0]:.1f} mm<br>"
-                    "75th Percentile: %{customdata[1]:.1f} mm<br>"
-                    "<extra></extra>"
-                ),
+            x = stats["year"].to_list() if stats is not None else []
+            y = stats["avg"].to_list() if stats is not None else []
+            anom_list = stats["anomaly"].to_list() if stats is not None else []
+            c_data = (
+                stats[
+                    [
+                        "q1",
+                        "q3",
+                        "min",
+                        "max",
+                        "anomaly",
+                        "median",
+                        "trend",
+                    ]
+                ].rows()
+                if stats is not None
+                else []
             )
-        )
+
+            color = colors[i % len(colors)]
+            loc_prefix = f"{loc.split(',')[0]} - " if len(locations) > 1 else ""
+
+            # Standard shading color (rgba from our primary hex)
+            shading_color = color.replace("#", "")
+            r = int(shading_color[:2], 16)
+            g = int(shading_color[2:4], 16)
+            b = int(shading_color[4:], 16)
+            faint_color = f"rgba({r}, {g}, {b}, 0.08)"
+
+            # Trace 0: Shading
+            sh_trace = _create_shading_trace(x, y, m_idx, std_dev, faint_color)
+            sh_trace.name = f"{loc_prefix}{sh_trace.name}"
+            fig.add_trace(sh_trace)
+
+            # Trace 1: Range (Removed for Precipitation)
+            fig.add_trace(
+                go.Scatter(x=[], y=[], visible=False, showlegend=False)
+            )
+
+            # Trace 2: Trend
+            t_trace = _create_trend_trace(x, y, m_idx, show_trend)
+            t_trace.name = f"{loc_prefix}{t_trace.name}"
+            # Use location color for trend
+            t_trace.line.color = color
+            if len(locations) > 1:
+                t_trace.line.dash = "dot"
+            fig.add_trace(t_trace)
+
+            # Trace 3: Main
+            # Anomaly is disabled for multiple locations in main.py
+            if show_anomaly and len(locations) == 1:
+                m_color = [a if a is not None else 0 for a in anom_list]
+                m_cscale = "BrBG"
+                show_colorbar = True
+            else:
+                m_color = color
+                m_cscale = None
+                show_colorbar = False
+
+            fig.add_trace(
+                go.Scatter(
+                    x=x,
+                    y=y,
+                    customdata=c_data,
+                    mode="markers+lines",
+                    name=f"{loc_prefix}Observations",
+                    visible=(m_idx == 1),
+                    marker=dict(
+                        size=8 if len(locations) > 1 else 10,
+                        color=m_color,
+                        colorscale=m_cscale,
+                        cmid=0,
+                        line=dict(width=1, color="white"),
+                        colorbar=dict(
+                            title=dict(text="Anomaly (mm)", side="top"),
+                            orientation="h",
+                            x=0.5,
+                            y=-0.18,
+                            yanchor="top",
+                            xanchor="center",
+                            thickness=15,
+                            len=0.5,
+                        )
+                        if show_colorbar
+                        else None,
+                    ),
+                    line=dict(width=1, color="rgba(0,0,0,0.2)"),
+                    showlegend=True,
+                    hovertemplate=(
+                        f"<b>{loc}</b><br>"
+                        f"<b>Year: %{{x}}</b><br>"
+                        f"Total: %{{y:.1f}} mm<br>"
+                        f"Median: %{{customdata[5]:.1f}} mm<br>"
+                        f"Trend Mean: %{{customdata[6]:.1f}} mm<br>"
+                        f"Mean Anomaly: %{{customdata[4]:.1f}} mm<br>"
+                        f"Minimum: %{{customdata[2]:.1f}} mm<br>"
+                        f"Maximum: %{{customdata[3]:.1f}} mm<br>"
+                        f"25th Percentile: %{{customdata[0]:.1f}} mm<br>"
+                        f"75th Percentile: %{{customdata[1]:.1f}} mm<br>"
+                        f"<extra></extra>"
+                    ),
+                )
+            )
 
     fig.update_layout(
         title=dict(
