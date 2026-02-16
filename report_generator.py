@@ -196,7 +196,6 @@ def generate_report(
         merged_df,
         period_labels,
         show_trend,
-        show_median,
         show_anomaly,
         locations=locations,
         period_type=period,
@@ -232,7 +231,7 @@ def generate_report(
     traces_per_loc_temp = 2 * len(ribbon_pairs) + 1 + 1 + 1
     traces_per_month_temp = traces_per_loc_temp * len(locations)
 
-    traces_per_loc_precip = 3
+    traces_per_loc_precip = 2
     traces_per_month_precip = traces_per_loc_precip * len(locations)
 
     return render_template(

@@ -370,7 +370,6 @@ def create_precipitation_plot(
     merged_df: pl.DataFrame,
     period_labels: list[str],
     show_trend: bool,
-    show_median: bool,
     show_anomaly: bool,
     locations: list[str] = None,
     period_type: str = "monthly",
@@ -423,15 +422,6 @@ def create_precipitation_plot(
 
             color = colors[i % len(colors)]
             loc_prefix = f"{loc.split(',')[0]} - " if len(locations) > 1 else ""
-
-            m_trace = _create_median_trace(
-                x,
-                stats_df["median"].to_list() if stats_df is not None else [],
-                p_idx,
-                show_median,
-            )
-            m_trace.name = f"{loc_prefix}{m_trace.name}"
-            fig.add_trace(m_trace)
 
             t_trace = _create_trend_trace(x, y, p_idx, show_trend)
             t_trace.name = f"{loc_prefix}{t_trace.name}"

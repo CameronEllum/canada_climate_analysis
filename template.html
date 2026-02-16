@@ -124,9 +124,8 @@
                                 if (traceWithinLoc === tpl - 2) return showTrend;
                                 return true;
                             } else {
-                                // Precipitation: Median + Trend + Observations
-                                if (traceWithinLoc === 0) return showMedian;
-                                if (traceWithinLoc === 1) return showTrend;
+                                // Precipitation: Trend + Observations
+                                if (traceWithinLoc === 0) return showTrend;
                                 return true;
                             }
                         }
