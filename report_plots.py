@@ -58,23 +58,23 @@ def create_modern_theme(fig: go.Figure) -> None:
     )
 
 
-def _calculate_monthly_stats(
-    monthly_df: pl.DataFrame, month_idx: int, metric: str, location: str = None
+def _calculate_period_stats(
+    merged_df: pl.DataFrame, period_idx: int, metric: str, location: str = None
 ) -> pl.DataFrame | None:
-    """Calculate statistics for a specific month and optionally a location."""
-    m_df = monthly_df.filter(pl.col("month") == month_idx)
+    """Calculate statistics for a specific period (month/season/year)."""
+    p_df = merged_df.filter(pl.col("period_idx") == period_idx)
 
     if location:
-        m_df = m_df.filter(pl.col("requested_location") == location)
+        p_df = p_df.filter(pl.col("requested_location") == location)
 
-    m_df = m_df.sort("year")
+    p_df = p_df.sort("year")
 
-    if m_df.is_empty():
+    if p_df.is_empty():
         return None
 
     if metric == "temperature":
         return (
-            m_df.group_by("year")
+            p_df.group_by("year")
             .agg(
                 [
                     pl.col("temp_mean").mean().alias("avg"),
@@ -89,7 +89,7 @@ def _calculate_monthly_stats(
         )
     else:  # precipitation
         return (
-            m_df.group_by("year")
+            p_df.group_by("year")
             .agg(
                 [
                     pl.col("precip_total").mean().alias("avg"),
@@ -105,42 +105,19 @@ def _calculate_monthly_stats(
 
 
 def _add_anomaly_columns(stats: pl.DataFrame) -> pl.DataFrame:
-    """Add anomaly column to monthly statistics.
-
-    Trend Calculation Methodology:
-    ==============================
-    1. Input: stats DataFrame contains yearly averages for a specific month
-       - Each row represents one year's data for that month
-       - 'avg' column = mean of all station observations for that month/year
-
-    2. Linear Trend Calculation:
-       - Fits a linear regression line through the yearly averages
-       - Formula: trend(year) = slope * year + intercept
-       - This represents the long-term climate trend for this specific month
-
-    3. Anomaly Calculation:
-       - Anomaly = actual yearly average - trend value for that year
-       - Positive anomaly = warmer/wetter than trend
-       - Negative anomaly = cooler/drier than trend
-
-    Example for January:
-    - 1950 January avg = -5.2°C, trend = -5.0°C → anomaly = -0.2°C
-    - 2020 January avg = -3.1°C, trend = -4.0°C → anomaly = +0.9°C
-    """
+    """Add anomaly column to period statistics."""
     lt_mean = stats["avg"].mean()
     x_vals = [float(xi) for xi in stats["year"].to_list()]
     y_vals = stats["avg"].to_list()
     trend_y = calculate_trendline(x_vals, y_vals)
 
     if trend_y:
-        # Use linear trend as baseline for anomaly calculation
         series_trend = pl.Series(name="trend", values=trend_y)
         return stats.with_columns(
             trend=series_trend,
             anomaly=pl.col("avg") - series_trend,
         )
     else:
-        # Fallback to long-term mean if trend calculation fails
         return stats.with_columns(
             trend=pl.lit(lt_mean),
             anomaly=pl.col("avg") - lt_mean,
@@ -150,7 +127,7 @@ def _add_anomaly_columns(stats: pl.DataFrame) -> pl.DataFrame:
 def _create_shading_trace(
     x: list,
     y: list,
-    month_idx: int,
+    p_idx: int,
     std_dev: bool,
     fillcolor: str,
 ) -> go.Scatter:
@@ -160,9 +137,8 @@ def _create_shading_trace(
         x_vals = [float(xi) for xi in x]
         trend_y = calculate_trendline(x_vals, y)
         if trend_y:
-            # Filter out None values when calculating residuals
             resids = [yi - tyi for yi, tyi in zip(y, trend_y) if yi is not None]
-            if resids:  # Only calculate std if we have valid residuals
+            if resids:
                 std_resid = (sum(r**2 for r in resids) / len(resids)) ** 0.5
                 y_upper = [ty + std_resid for ty in trend_y]
                 y_lower = [ty - std_resid for ty in trend_y]
@@ -174,14 +150,14 @@ def _create_shading_trace(
         fillcolor=fillcolor,
         line=dict(color="rgba(0,0,0,0)"),
         name="Std Dev (Trend-rel.)",
-        visible=(month_idx == 1 and std_dev),
+        visible=(p_idx == 1 and std_dev),
         showlegend=std_dev,
         hoverinfo="skip",
     )
 
 
 def _create_trend_trace(
-    x: list, y: list, month_idx: int, show_trend: bool
+    x: list, y: list, p_idx: int, show_trend: bool
 ) -> go.Scatter:
     """Create trendline trace."""
     x_vals = [float(xi) for xi in x]
@@ -192,7 +168,7 @@ def _create_trend_trace(
         y=trend_y if trend_y else [],
         mode="lines",
         name="Linear Trend",
-        visible=(month_idx == 1 and show_trend),
+        visible=(p_idx == 1 and show_trend),
         line=dict(width=1, color="red"),
         showlegend=show_trend,
         hoverinfo="skip",
@@ -200,14 +176,15 @@ def _create_trend_trace(
 
 
 def create_temperature_plot(
-    monthly_df: pl.DataFrame,
-    months: list[str],
+    merged_df: pl.DataFrame,
+    period_labels: list[str],
     show_trend: bool,
     std_dev: bool,
     show_anomaly: bool,
     max_temp: bool = False,
     min_temp: bool = False,
     locations: list[str] = None,
+    period_type: str = "monthly",
 ) -> go.Figure:
     """Create temperature analysis plot."""
     fig = go.Figure()
@@ -215,7 +192,6 @@ def create_temperature_plot(
     if locations is None:
         locations = ["All Stations"]
 
-    # Color palette for multiple locations
     colors = [
         "#2c3e50",
         "#e74c3c",
@@ -227,78 +203,77 @@ def create_temperature_plot(
         "#16a085",
     ]
 
+    prefix = (
+        "Monthly"
+        if period_type == "monthly"
+        else ("Seasonal" if period_type == "seasonally" else "Yearly")
+    )
     if max_temp:
         mean_label = "Mean Max"
-        title_text = "Monthly Maximum Temperature Analysis"
+        title_text = f"{prefix} Maximum Temperature Analysis"
     elif min_temp:
         mean_label = "Mean Min"
-        title_text = "Monthly Minimum Temperature Analysis"
+        title_text = f"{prefix} Minimum Temperature Analysis"
     else:
         mean_label = "Mean"
-        title_text = "Monthly Temperature Analysis"
+        title_text = f"{prefix} Temperature Analysis"
 
-    for m_idx in range(1, 13):
+    for p_idx in range(1, len(period_labels) + 1):
         for i, loc in enumerate(locations):
-            stats = _calculate_monthly_stats(
-                monthly_df, m_idx, "temperature", location=loc
+            stats_df = _calculate_period_stats(
+                merged_df, p_idx, "temperature", location=loc
             )
 
-            if stats is not None:
-                stats = _add_anomaly_columns(stats)
+            if stats_df is not None:
+                stats_df = _add_anomaly_columns(stats_df)
 
-            x = stats["year"].to_list() if stats is not None else []
-            y = stats["avg"].to_list() if stats is not None else []
-            anom_list = stats["anomaly"].to_list() if stats is not None else []
+            x = stats_df["year"].to_list() if stats_df is not None else []
+            y = stats_df["avg"].to_list() if stats_df is not None else []
+            anom_list = (
+                stats_df["anomaly"].to_list() if stats_df is not None else []
+            )
             c_data = (
-                stats[
-                    [
-                        "q1",
-                        "q3",
-                        "min",
-                        "max",
-                        "anomaly",
-                        "median",
-                        "trend",
-                    ]
+                stats_df[
+                    ["q1", "q3", "min", "max", "anomaly", "median", "trend"]
                 ].rows()
-                if stats is not None
+                if stats_df is not None
                 else []
             )
 
             color = colors[i % len(colors)]
             loc_prefix = f"{loc.split(',')[0]} - " if len(locations) > 1 else ""
 
-            # Standard shading color (rgba from our primary hex)
-            # Create a faint version of the location color
             shading_color = color.replace("#", "")
-            r = int(shading_color[:2], 16)
-            g = int(shading_color[2:4], 16)
-            b = int(shading_color[4:], 16)
+            r, g, b = (
+                int(shading_color[:2], 16),
+                int(shading_color[2:4], 16),
+                int(shading_color[4:], 16),
+            )
             faint_color = f"rgba({r}, {g}, {b}, 0.08)"
 
-            # Trace 0: Shading
-            sh_trace = _create_shading_trace(x, y, m_idx, std_dev, faint_color)
+            sh_trace = _create_shading_trace(x, y, p_idx, std_dev, faint_color)
             sh_trace.name = f"{loc_prefix}{sh_trace.name}"
             fig.add_trace(sh_trace)
 
-            # Trace 1: Q1/Q3 Range
-            q3 = stats["q3"] if stats is not None else []
-            q1 = stats["q1"] if stats is not None else []
-            avg = stats["avg"] if stats is not None else []
+            q3 = stats_df["q3"] if stats_df is not None else []
+            q1 = stats_df["q1"] if stats_df is not None else []
+            avg = stats_df["avg"] if stats_df is not None else []
             fig.add_trace(
                 go.Scatter(
                     x=x,
                     y=y,
                     mode="markers",
                     name=f"{loc_prefix}Spread (Q1-Q3)",
-                    visible=(m_idx == 1),
+                    visible=(p_idx == 1),
                     marker=dict(size=0),
                     error_y=dict(
                         type="data",
                         symmetric=False,
-                        array=(q3 - avg).to_list() if stats is not None else [],
+                        array=(q3 - avg).to_list()
+                        if stats_df is not None
+                        else [],
                         arrayminus=(avg - q1).to_list()
-                        if stats is not None
+                        if stats_df is not None
                         else [],
                         width=0,
                         thickness=1,
@@ -309,25 +284,18 @@ def create_temperature_plot(
                 )
             )
 
-            # Trace 2: Trendline
-            t_trace = _create_trend_trace(x, y, m_idx, show_trend)
+            t_trace = _create_trend_trace(x, y, p_idx, show_trend)
             t_trace.name = f"{loc_prefix}{t_trace.name}"
-            # Use location color for trend
             t_trace.line.color = color
             if len(locations) > 1:
                 t_trace.line.dash = "dot"
             fig.add_trace(t_trace)
 
-            # Trace 3: Main Data
-            # Anomaly is disabled for multiple locations in main.py
             if show_anomaly and len(locations) == 1:
                 m_color = [a if a is not None else 0 for a in anom_list]
-                m_cscale = "RdBu_r"
-                show_colorbar = True
+                m_cscale, show_colorbar = "RdBu_r", True
             else:
-                m_color = color
-                m_cscale = None
-                show_colorbar = False
+                m_color, m_cscale, show_colorbar = color, None, False
 
             fig.add_trace(
                 go.Scatter(
@@ -336,7 +304,7 @@ def create_temperature_plot(
                     customdata=c_data,
                     mode="lines+markers",
                     name=f"{loc_prefix}Observations",
-                    visible=(m_idx == 1),
+                    visible=(p_idx == 1),
                     marker=dict(
                         size=8 if len(locations) > 1 else 10,
                         color=m_color,
@@ -359,8 +327,7 @@ def create_temperature_plot(
                     line=dict(width=1, color="rgba(0,0,0,0.2)"),
                     showlegend=True,
                     hovertemplate=(
-                        f"<b>{loc}</b><br>"
-                        f"<b>Year: %{{x}}</b><br>"
+                        f"<b>{loc}</b><br><b>Year: %{{x}}</b><br>"
                         f"{mean_label}: %{{y:.1f}}°C<br>"
                         f"Median: %{{customdata[5]:.1f}}°C<br>"
                         f"Trend Mean: %{{customdata[6]:.1f}}°C<br>"
@@ -368,19 +335,13 @@ def create_temperature_plot(
                         f"Minimum: %{{customdata[2]:.1f}}°C<br>"
                         f"Maximum: %{{customdata[3]:.1f}}°C<br>"
                         f"25th Percentile: %{{customdata[0]:.1f}}°C<br>"
-                        f"75th Percentile: %{{customdata[1]:.1f}}°C<br>"
-                        f"<extra></extra>"
+                        f"75th Percentile: %{{customdata[1]:.1f}}°C<br><extra></extra>"
                     ),
                 )
             )
 
     fig.update_layout(
-        title=dict(
-            text=title_text,
-            x=0.5,
-            y=0.96,
-            xanchor="center",
-        ),
+        title=dict(text=title_text, x=0.5, y=0.96, xanchor="center"),
         legend=dict(
             orientation="v", yanchor="top", y=1, xanchor="left", x=1.02
         ),
@@ -393,12 +354,13 @@ def create_temperature_plot(
 
 
 def create_precipitation_plot(
-    monthly_df: pl.DataFrame,
-    months: list[str],
+    merged_df: pl.DataFrame,
+    period_labels: list[str],
     show_trend: bool,
     std_dev: bool,
     show_anomaly: bool,
     locations: list[str] = None,
+    period_type: str = "monthly",
 ) -> go.Figure:
     """Create precipitation analysis plot."""
     fig = go.Figure()
@@ -417,73 +379,66 @@ def create_precipitation_plot(
         "#16a085",
     ]
 
-    for m_idx in range(1, 13):
+    prefix = (
+        "Monthly"
+        if period_type == "monthly"
+        else ("Seasonal" if period_type == "seasonally" else "Yearly")
+    )
+    title_text = f"{prefix} Precipitation Analysis"
+
+    for p_idx in range(1, len(period_labels) + 1):
         for i, loc in enumerate(locations):
-            stats = _calculate_monthly_stats(
-                monthly_df, m_idx, "precipitation", location=loc
+            stats_df = _calculate_period_stats(
+                merged_df, p_idx, "precipitation", location=loc
             )
 
-            if stats is not None:
-                stats = _add_anomaly_columns(stats)
+            if stats_df is not None:
+                stats_df = _add_anomaly_columns(stats_df)
 
-            x = stats["year"].to_list() if stats is not None else []
-            y = stats["avg"].to_list() if stats is not None else []
-            anom_list = stats["anomaly"].to_list() if stats is not None else []
+            x = stats_df["year"].to_list() if stats_df is not None else []
+            y = stats_df["avg"].to_list() if stats_df is not None else []
+            anom_list = (
+                stats_df["anomaly"].to_list() if stats_df is not None else []
+            )
             c_data = (
-                stats[
-                    [
-                        "q1",
-                        "q3",
-                        "min",
-                        "max",
-                        "anomaly",
-                        "median",
-                        "trend",
-                    ]
+                stats_df[
+                    ["q1", "q3", "min", "max", "anomaly", "median", "trend"]
                 ].rows()
-                if stats is not None
+                if stats_df is not None
                 else []
             )
 
             color = colors[i % len(colors)]
             loc_prefix = f"{loc.split(',')[0]} - " if len(locations) > 1 else ""
 
-            # Standard shading color (rgba from our primary hex)
             shading_color = color.replace("#", "")
-            r = int(shading_color[:2], 16)
-            g = int(shading_color[2:4], 16)
-            b = int(shading_color[4:], 16)
+            r, g, b = (
+                int(shading_color[:2], 16),
+                int(shading_color[2:4], 16),
+                int(shading_color[4:], 16),
+            )
             faint_color = f"rgba({r}, {g}, {b}, 0.08)"
 
-            # Trace 0: Shading
-            sh_trace = _create_shading_trace(x, y, m_idx, std_dev, faint_color)
+            sh_trace = _create_shading_trace(x, y, p_idx, std_dev, faint_color)
             sh_trace.name = f"{loc_prefix}{sh_trace.name}"
             fig.add_trace(sh_trace)
 
-            # Trace 1: Range (Removed for Precipitation)
             fig.add_trace(
                 go.Scatter(x=[], y=[], visible=False, showlegend=False)
             )
 
-            # Trace 2: Trend
-            t_trace = _create_trend_trace(x, y, m_idx, show_trend)
+            t_trace = _create_trend_trace(x, y, p_idx, show_trend)
             t_trace.name = f"{loc_prefix}{t_trace.name}"
-            # Use location color for trend
             t_trace.line.color = color
             if len(locations) > 1:
                 t_trace.line.dash = "dot"
             fig.add_trace(t_trace)
 
-            # Trace 3: Main
-            # Anomaly is disabled for multiple locations in main.py
             if show_anomaly and len(locations) == 1:
                 m_color = [a if a is not None else 0 for a in anom_list]
-                m_cscale = "BrBG"
-                show_colorbar = True
+                m_cscale, show_colorbar = "BrBG", True
             else:
-                m_color = color
-                m_cscale = None
-                show_colorbar = False
+                m_color, m_cscale, show_colorbar = color, None, False
 
             fig.add_trace(
                 go.Scatter(
@@ -492,7 +447,7 @@ def create_precipitation_plot(
                     customdata=c_data,
                     mode="markers+lines",
                     name=f"{loc_prefix}Observations",
-                    visible=(m_idx == 1),
+                    visible=(p_idx == 1),
                     marker=dict(
                         size=8 if len(locations) > 1 else 10,
                         color=m_color,
@@ -515,8 +470,7 @@ def create_precipitation_plot(
                     line=dict(width=1, color="rgba(0,0,0,0.2)"),
                     showlegend=True,
                     hovertemplate=(
-                        f"<b>{loc}</b><br>"
-                        f"<b>Year: %{{x}}</b><br>"
+                        f"<b>{loc}</b><br><b>Year: %{{x}}</b><br>"
                         f"Total: %{{y:.1f}} mm<br>"
                         f"Median: %{{customdata[5]:.1f}} mm<br>"
                         f"Trend Mean: %{{customdata[6]:.1f}} mm<br>"
@@ -524,19 +478,13 @@ def create_precipitation_plot(
                         f"Minimum: %{{customdata[2]:.1f}} mm<br>"
                         f"Maximum: %{{customdata[3]:.1f}} mm<br>"
                         f"25th Percentile: %{{customdata[0]:.1f}} mm<br>"
-                        f"75th Percentile: %{{customdata[1]:.1f}} mm<br>"
-                        f"<extra></extra>"
+                        f"75th Percentile: %{{customdata[1]:.1f}} mm<br><extra></extra>"
                     ),
                 )
             )
 
     fig.update_layout(
-        title=dict(
-            text="Monthly Precipitation Analysis",
-            x=0.5,
-            y=0.96,
-            xanchor="center",
-        ),
+        title=dict(text=title_text, x=0.5, y=0.96, xanchor="center"),
         legend=dict(
             orientation="v", yanchor="top", y=1, xanchor="left", x=1.02
         ),
@@ -554,8 +502,6 @@ def create_station_map(
 ) -> go.Figure:
     """Create a map showing historical and active climate stations."""
     fig = go.Figure()
-
-    # Calculate year ranges for each station
     max_year = daily_df["year"].max()
     range_df = daily_df.group_by("station_id").agg(
         [
@@ -563,16 +509,12 @@ def create_station_map(
             pl.col("year").max().alias("max_y"),
         ]
     )
-
-    # Join station info with year ranges
     map_stations = stations_df.join(
         range_df, left_on="id", right_on="station_id"
     )
     map_stations = map_stations.with_columns(
         is_current=pl.col("max_y") == max_year
     )
-
-    # Separate into historical and active stations
     curr_df = map_stations.filter(pl.col("is_current"))
     hist_df = map_stations.filter(~pl.col("is_current"))
 
@@ -600,27 +542,19 @@ def create_station_map(
             )
         )
 
-    if not map_stations.is_empty():
-        fig.update_layout(
-            map=dict(
-                style="carto-positron",
-                center=dict(
-                    lat=map_stations["latitude"].mean(),
-                    lon=map_stations["longitude"].mean(),
-                ),
-                zoom=8,
+    fig.update_layout(
+        title=dict(
+            text="Climate Station Locations", x=0.5, y=0.96, xanchor="center"
+        ),
+        map=dict(
+            style="carto-positron",
+            center=dict(
+                lat=map_stations["latitude"].mean(),
+                lon=map_stations["longitude"].mean(),
             ),
-            margin=dict(l=0, r=0, t=50, b=10),
-            height=500,
-            title=dict(
-                text="Climate Stations", x=0.5, y=0.98, xanchor="center"
-            ),
-            legend=dict(
-                yanchor="top",
-                y=0.99,
-                xanchor="left",
-                x=0.01,
-                bgcolor="rgba(255,255,255,0.7)",
-            ),
-        )
+            zoom=8,
+        ),
+        margin=dict(l=0, r=0, t=60, b=0),
+        height=500,
+    )
     return fig

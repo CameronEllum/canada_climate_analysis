@@ -52,6 +52,22 @@ logger = logging.getLogger(__name__)
     help="Use minimum daily temperature (default: False)",
 )
 @click.option(
+    "--monthly",
+    "period",
+    flag_value="monthly",
+    default=True,
+    help="Aggregate by month (default)",
+)
+@click.option(
+    "--seasonally",
+    "period",
+    flag_value="seasonally",
+    help="Aggregate by season",
+)
+@click.option(
+    "--yearly", "period", flag_value="yearly", help="Aggregate by year"
+)
+@click.option(
     "--cache-requests/--no-cache-requests",
     default=False,
     help="Enable HTTP requests caching (default: False)",
@@ -66,6 +82,7 @@ def main(
     show_anomaly: bool,
     max_temp: bool,
     min_temp: bool,
+    period: str,
     cache_requests: bool,
 ) -> None:
     """Generate climate analysis report for multiple locations."""
@@ -136,6 +153,7 @@ def main(
         show_anomaly,
         max_temp,
         min_temp,
+        period=period,
     )
 
     # Filename based on first location or 'multi'

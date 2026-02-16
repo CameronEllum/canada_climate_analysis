@@ -9,11 +9,12 @@ import jinja2
 import polars as pl
 
 
-def aggregate_to_monthly(
+def aggregate_data(
     daily_df: pl.DataFrame,
     stations_df: pl.DataFrame,
     max_temp: bool = False,
     min_temp: bool = False,
+    period: str = "monthly",
 ) -> pl.DataFrame:
     """Aggregate daily data to monthly statistics.
 
@@ -37,10 +38,24 @@ def aggregate_to_monthly(
         stations_df.select(["id", "requested_location"]),
         left_on="station_id",
         right_on="id",
+    ).with_columns(
+        period_idx=pl.when(period == "monthly")
+        .then(pl.col("month"))
+        .when(period == "seasonally")
+        .then(
+            pl.when(pl.col("month").is_in([12, 1, 2]))
+            .then(1)
+            .when(pl.col("month").is_in([3, 4, 5]))
+            .then(2)
+            .when(pl.col("month").is_in([6, 7, 8]))
+            .then(3)
+            .otherwise(4)
+        )
+        .otherwise(pl.lit(1))
     )
 
     return df.group_by(
-        ["requested_location", "station_id", "year", "month"]
+        ["requested_location", "station_id", "year", "period_idx"]
     ).agg(
         [
             pl.col(target_col).mean().alias("temp_mean"),
@@ -58,32 +73,26 @@ def aggregate_to_monthly(
 def render_template(
     locations: list[str],
     radius: float,
-    html_sections: list[str],
-    months: list[str],
+    plots: list[str],
+    period_labels: list[str],
     traces_per_month: int,
     show_trend: bool,
     shade_deviation: bool,
 ) -> str:
-    """Render the HTML report from template."""
+    """Render the HTML report using Jinja2."""
     template_path = Path(__file__).parent / "template.html"
-    with open(template_path, encoding="utf-8") as f:
-        template_content = f.read()
+    with open(template_path, "r", encoding="utf-8") as f:
+        template = jinja2.Template(f.read())
 
-    f_url = (
-        "https://fonts.googleapis.com/css2?"
-        "family=Inter:wght@400;600&display=swap"
-    )
+    f_url = "https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"
 
-    # Join locations for display
-    display_location = ", ".join(locations)
-
-    return jinja2.Template(template_content).render(
-        location=display_location,
+    return template.render(
+        location=" & ".join([loc.split(",")[0] for loc in locations]),
         radius=radius,
-        date=datetime.date.today().isoformat(),
-        plots=html_sections,
+        date=datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+        plots=plots,
         f_url=f_url,
-        months=months,
+        months=period_labels,
         traces_per_month=traces_per_month,
         show_trend=show_trend,
         show_dev=shade_deviation,
@@ -100,50 +109,65 @@ def generate_report(
     show_anomaly: bool = True,
     max_temp: bool = False,
     min_temp: bool = False,
+    period: str = "monthly",
 ) -> str:
-    """Aggregate daily data to monthly and generate HTML report."""
+    """Aggregate daily data to period and generate HTML report."""
     # Import here to avoid circular dependency
     from report_plots import create_precipitation_plot
     from report_plots import create_station_map
     from report_plots import create_temperature_plot
 
-    monthly_df = aggregate_to_monthly(daily_df, stations_df, max_temp, min_temp)
+    merged_df = aggregate_data(
+        daily_df, stations_df, max_temp, min_temp, period
+    )
 
-    months = [
-        "January",
-        "February",
-        "March",
-        "April",
-        "May",
-        "June",
-        "July",
-        "August",
-        "September",
-        "October",
-        "November",
-        "December",
-    ]
+    if period == "monthly":
+        period_labels = [
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December",
+        ]
+    elif period == "seasonally":
+        period_labels = [
+            "Winter (DJF)",
+            "Spring (MAM)",
+            "Summer (JJA)",
+            "Fall (SON)",
+        ]
+    else:  # yearly
+        period_labels = ["Annual"]
 
     # Create temperature plot
     fig_temp = create_temperature_plot(
-        monthly_df,
-        months,
+        merged_df,
+        period_labels,
         show_trend,
         std_dev,
         show_anomaly,
         max_temp,
         min_temp,
         locations=locations,
+        period_type=period,
     )
 
     # Create precipitation plot
     fig_precip = create_precipitation_plot(
-        monthly_df,
-        months,
+        merged_df,
+        period_labels,
         show_trend,
         std_dev,
         show_anomaly,
         locations=locations,
+        period_type=period,
     )
 
     # Create station map
@@ -176,7 +200,7 @@ def generate_report(
         locations,
         radius,
         html_sections,
-        months,
+        period_labels,
         traces_per_month,
         show_trend,
         std_dev,
