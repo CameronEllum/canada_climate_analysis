@@ -25,7 +25,7 @@ An example report is at https://cameronellum.github.io/canada_climate_analysis/r
 
 Run the analysis using `uv run main.py`. The tool will automatically geocode the location name, find nearby stations, and fetch data.
 
-Data downloaded from MSC GeoMet is cached in a SQLite database for future use. HTTP requests are also cached using the `requests-cache` library. This can probably be removed in the future; it was just to be a good citizen while developing.
+Data downloaded from MSC GeoMet is cached in a SQLite database for future use. HTTP requests can be also cached using the `requests-cache` library. This is only intended for development purposes.
 
 ### Examples
 
@@ -62,7 +62,7 @@ uv run main.py --location "Winnipeg" --min
 | `--start-year` | Start year for data range. | `1900` |
 | `--end-year` | End year for data range. | Current year |
 | `--trend` | Include trendlines in the charts. | `True` |
-| `--std-dev` | Shade standard deviation in the charts. | `False` |
+| `--median` | Include median in the temperature chart. | `False` |
 | `--show-anomaly` | Show anomaly heatmap coloring. | `True` |
 | `--max` | Analyze maximum daily temperatures instead of mean. | `False` |
 | `--min` | Analyze minimum daily temperatures instead of mean. | `False` |
