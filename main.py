@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 @click.option("--radius", default=100.0, help="Radius (km)")
 @click.option("--start-year", default=1900, help="Start year")
 @click.option("--end_year", default=None, help="End year")
-@click.option("--trend", is_flag=True, help="Show trendlines")
+@click.option("--trend/--no-trend", default=True, help="Show trendlines")
 @click.option("--shade-deviation", is_flag=True, help="Shade deviation")
 @click.option("--no-anomaly", is_flag=True, help="Disable anomaly coloring")
 def main(
@@ -37,7 +37,7 @@ def main(
     radius: float,
     start_year: int,
     end_year: int | None,
-    trend: bool = False,
+    trend: bool = True,
     shade_deviation: bool = False,
     no_anomaly: bool = False,
 ) -> None:
@@ -75,6 +75,7 @@ def main(
         daily_df,
         stations_df,
         location,
+        coords,
         radius,
         trend,
         shade_deviation,

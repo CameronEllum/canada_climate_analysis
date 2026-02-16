@@ -105,6 +105,7 @@ def generate_report(
     daily_df: pl.DataFrame,
     stations_df: pl.DataFrame,
     location_name: str,
+    location_coords: tuple[float, float],
     radius: float,
     show_trend: bool = False,
     shade_deviation: bool = False,
@@ -113,6 +114,7 @@ def generate_report(
     """Aggregate daily data to monthly and generate HTML report."""
     # Import here to avoid circular dependency
     from report_plots import create_precipitation_plot
+    from report_plots import create_station_map
     from report_plots import create_temperature_plot
 
     monthly_df = aggregate_to_monthly(daily_df)
@@ -142,12 +144,26 @@ def generate_report(
         monthly_df, months, show_trend, shade_deviation, show_anomaly
     )
 
+    # Create station map
+    fig_map = create_station_map(stations_df, location_coords)
+
     html_sections = [
         fig_temp.to_html(
-            include_plotlyjs="cdn", div_id="chart-temp", full_html=False
+            include_plotlyjs="cdn",
+            div_id="chart-temp",
+            full_html=False,
+            config={"modeBarButtonsToRemove": ["select2d", "lasso2d"]},
         ),
         fig_precip.to_html(
-            include_plotlyjs=False, div_id="chart-precip", full_html=False
+            include_plotlyjs=False,
+            div_id="chart-precip",
+            full_html=False,
+            config={"modeBarButtonsToRemove": ["select2d", "lasso2d"]},
+        ),
+        fig_map.to_html(
+            include_plotlyjs=False,
+            div_id="chart-map",
+            full_html=False,
         ),
     ]
 
