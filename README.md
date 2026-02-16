@@ -37,6 +37,10 @@ uv run main.py --location "Toronto" --trend --shade-deviation
 ```bash
 uv run main.py --location "Vancouver" --start-year 1980 --end-year 2023 --radius 50
 ```
+**Analyze maximum daily temperatures:**
+```bash
+uv run main.py --location "Edmonton" --max
+```
 
 ### CLI Options
 
@@ -46,8 +50,10 @@ uv run main.py --location "Vancouver" --start-year 1980 --end-year 2023 --radius
 | `--radius` | Search radius for climate stations in km. | `100.0` |
 | `--start-year` | Start year for data range. | `1900` |
 | `--end-year` | End year for data range. | Current year |
-| `--trend` | Include trendlines in the charts. | `False` |
+| `--trend` | Include trendlines in the charts. | `True` |
 | `--shade-deviation` | Shade standard deviation in the charts. | `False` |
+| `--show-anomaly` | Show anomaly heatmap coloring. | `True` |
+| `--max` | Analyze maximum daily temperatures instead of mean. | `False` |
 
 ## Example Output
 

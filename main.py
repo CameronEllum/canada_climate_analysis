@@ -31,15 +31,26 @@ logger = logging.getLogger(__name__)
 @click.option("--end_year", default=None, help="End year")
 @click.option("--trend/--no-trend", default=True, help="Show trendlines")
 @click.option("--shade-deviation", is_flag=True, help="Shade deviation")
-@click.option("--no-anomaly", is_flag=True, help="Disable anomaly coloring")
+@click.option(
+    "--show-anomaly/--no-anomaly",
+    default=True,
+    help="Show anomaly plot (default: True)",
+)
+@click.option(
+    "--max/--no-max",
+    "max_temp",
+    default=False,
+    help="Use maximum daily temperature (default: False)",
+)
 def main(
     location: str,
     radius: float,
     start_year: int,
-    end_year: int | None,
-    trend: bool = True,
-    shade_deviation: bool = False,
-    no_anomaly: bool = False,
+    end_year: int,
+    trend: bool,
+    shade_deviation: bool,
+    show_anomaly: bool,
+    max_temp: bool,
 ) -> None:
     """Generate climate analysis report for a location."""
     if end_year is None:
@@ -69,7 +80,7 @@ def main(
         sys.exit(1)
 
     # Determine if anomaly coloring should be shown
-    show_anomaly_plot = shade_deviation and not no_anomaly
+    # Respect the user's explicit choice via --show-anomaly/--no-anomaly
 
     report = generate_report(
         daily_df,
@@ -78,7 +89,8 @@ def main(
         radius,
         trend,
         shade_deviation,
-        show_anomaly_plot,
+        show_anomaly,
+        max_temp,
     )
 
     fname = f"climate_report_{location.lower().replace(' ', '_')}.html"

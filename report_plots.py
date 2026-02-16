@@ -151,9 +151,11 @@ def create_temperature_plot(
     show_trend: bool,
     shade_deviation: bool,
     show_anomaly: bool,
+    max_temp: bool = False,
 ) -> go.Figure:
     """Create temperature analysis plot."""
     fig = go.Figure()
+    mean_label = "Mean Max" if max_temp else "Mean"
 
     for m_idx in range(1, 13):
         stats = _calculate_monthly_stats(monthly_df, m_idx, "temperature")
@@ -256,7 +258,7 @@ def create_temperature_plot(
                 line=dict(width=1, color="rgba(0,0,0,0.2)"),
                 showlegend=True,
                 hovertemplate=(
-                    "<b>Year: %{x}</b><br>Mean: %{y:.1f}°C<br>"
+                    "<b>Year: %{x}</b><br>" + mean_label + ": %{y:.1f}°C<br>"
                     "Median: %{customdata[5]:.1f}°C<br>"
                     "Trend Mean: %{customdata[6]:.1f}°C<br>"
                     "Mean Anomaly: %{customdata[4]:.1f}°C<br>"
@@ -269,9 +271,14 @@ def create_temperature_plot(
             )
         )
 
+    title_text = (
+        "Monthly Maximum Temperature Analysis"
+        if max_temp
+        else "Monthly Temperature Analysis"
+    )
     fig.update_layout(
         title=dict(
-            text="Monthly Temperature Analysis",
+            text=title_text,
             x=0.5,
             y=0.96,
             xanchor="center",

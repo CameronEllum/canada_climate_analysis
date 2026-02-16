@@ -62,16 +62,25 @@ def create_modern_theme(fig: go.Figure) -> None:
     )
 
 
-def aggregate_to_monthly(daily_df: pl.DataFrame) -> pl.DataFrame:
-    """Aggregate daily data to monthly statistics."""
+def aggregate_to_monthly(
+    daily_df: pl.DataFrame, max_temp: bool = False
+) -> pl.DataFrame:
+    """Aggregate daily data to monthly statistics.
+
+    If max_temp is True, statistics are calculated based on daily maximum temperatures.
+    Otherwise, they are based on daily mean temperatures.
+    """
+    target_col = "temp_max" if max_temp else "temp_mean"
+    min_col = "temp_max" if max_temp else "temp_min"
+
     return daily_df.group_by(["station_id", "year", "month"]).agg(
         [
-            pl.col("temp_mean").mean().alias("temp_mean"),
-            pl.col("temp_min").min().alias("temp_min_abs"),
+            pl.col(target_col).mean().alias("temp_mean"),
+            pl.col(min_col).min().alias("temp_min_abs"),
             pl.col("temp_max").max().alias("temp_max_abs"),
             pl.col("precip").sum().alias("precip_total"),
-            pl.col("temp_mean").quantile(0.25).alias("temp_q1"),
-            pl.col("temp_mean").quantile(0.75).alias("temp_q3"),
+            pl.col(target_col).quantile(0.25).alias("temp_q1"),
+            pl.col(target_col).quantile(0.75).alias("temp_q3"),
             pl.col("precip").quantile(0.25).alias("precip_q1"),
             pl.col("precip").quantile(0.75).alias("precip_q3"),
         ]
@@ -118,6 +127,7 @@ def generate_report(
     show_trend: bool = False,
     shade_deviation: bool = False,
     show_anomaly: bool = True,
+    max_temp: bool = False,
 ) -> str:
     """Aggregate daily data to monthly and generate HTML report."""
     # Import here to avoid circular dependency
@@ -125,7 +135,7 @@ def generate_report(
     from report_plots import create_station_map
     from report_plots import create_temperature_plot
 
-    monthly_df = aggregate_to_monthly(daily_df)
+    monthly_df = aggregate_to_monthly(daily_df, max_temp)
 
     months = [
         "January",
@@ -144,7 +154,12 @@ def generate_report(
 
     # Create temperature plot
     fig_temp = create_temperature_plot(
-        monthly_df, months, show_trend, shade_deviation, show_anomaly
+        monthly_df,
+        months,
+        show_trend,
+        shade_deviation,
+        show_anomaly,
+        max_temp,
     )
 
     # Create precipitation plot
