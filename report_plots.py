@@ -24,6 +24,7 @@ def _calculate_monthly_stats(
             .agg(
                 [
                     pl.col("temp_mean").mean().alias("avg"),
+                    pl.col("temp_mean").median().alias("median"),
                     pl.col("temp_q1").mean().alias("q1"),
                     pl.col("temp_q3").mean().alias("q3"),
                     pl.col("temp_min_abs").min().alias("min"),
@@ -38,6 +39,7 @@ def _calculate_monthly_stats(
             .agg(
                 [
                     pl.col("precip_total").mean().alias("avg"),
+                    pl.col("precip_total").median().alias("median"),
                     pl.col("precip_q1").mean().alias("q1"),
                     pl.col("precip_q3").mean().alias("q3"),
                     pl.col("precip_total").min().alias("min"),
@@ -56,14 +58,15 @@ def _add_anomaly_columns(stats: pl.DataFrame) -> pl.DataFrame:
     trend_y = calculate_trendline(x_vals, y_vals)
 
     if trend_y:
+        series_trend = pl.Series(name="trend", values=trend_y)
         return stats.with_columns(
-            anomaly=pl.col("avg") - pl.Series(trend_y),
-            anom_pct=100
-            * (pl.col("avg") - pl.Series(trend_y))
-            / pl.Series(trend_y),
+            trend=series_trend,
+            anomaly=pl.col("avg") - series_trend,
+            anom_pct=100 * (pl.col("avg") - series_trend) / series_trend,
         )
     else:
         return stats.with_columns(
+            trend=pl.lit(lt_mean),
             anomaly=pl.col("avg") - lt_mean,
             anom_pct=100 * (pl.col("avg") - lt_mean) / lt_mean,
         )
@@ -139,7 +142,18 @@ def create_temperature_plot(
         y = stats["avg"].to_list() if stats is not None else []
         anom_list = stats["anomaly"].to_list() if stats is not None else []
         c_data = (
-            stats[["q1", "q3", "min", "max", "anomaly", "anom_pct"]].rows()
+            stats[
+                [
+                    "q1",
+                    "q3",
+                    "min",
+                    "max",
+                    "anomaly",
+                    "anom_pct",
+                    "median",
+                    "trend",
+                ]
+            ].rows()
             if stats is not None
             else []
         )
@@ -218,6 +232,8 @@ def create_temperature_plot(
                 showlegend=(m_idx == 1),
                 hovertemplate=(
                     "<b>Year: %{x}</b><br>Mean: %{y:.1f}°C<br>"
+                    "Median: %{customdata[6]:.1f}°C<br>"
+                    "Trend Mean: %{customdata[7]:.1f}°C<br>"
                     "Anomaly: %{customdata[4]:.1f}°C "
                     "(%{customdata[5]:.1f}%)<br>"
                     "Minimum: %{customdata[2]:.1f}°C<br>"
@@ -267,7 +283,18 @@ def create_precipitation_plot(
         y = stats["avg"].to_list() if stats is not None else []
         anom_list = stats["anomaly"].to_list() if stats is not None else []
         c_data = (
-            stats[["q1", "q3", "min", "max", "anomaly", "anom_pct"]].rows()
+            stats[
+                [
+                    "q1",
+                    "q3",
+                    "min",
+                    "max",
+                    "anomaly",
+                    "anom_pct",
+                    "median",
+                    "trend",
+                ]
+            ].rows()
             if stats is not None
             else []
         )
@@ -321,6 +348,8 @@ def create_precipitation_plot(
                 showlegend=(m_idx == 1),
                 hovertemplate=(
                     "<b>Year: %{x}</b><br>Total: %{y:.1f} mm<br>"
+                    "Median: %{customdata[6]:.1f} mm<br>"
+                    "Trend Mean: %{customdata[7]:.1f} mm<br>"
                     "Anomaly: %{customdata[4]:.1f} mm "
                     "(%{customdata[5]:.1f}%)<br>"
                     "Minimum: %{customdata[2]:.1f} mm<br>"
