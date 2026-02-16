@@ -1,6 +1,6 @@
 # Climate Analysis
 
-This application downloads daily climate data from MSC GeoMet and generates HTML reports featuring temperature and precipitation anomalies, trendlines, and station maps. It uses SQLite for structured data caching and HTTP caching to minimize redundant API requests.
+This application downloads daily climate data from MSC GeoMet and generates HTML reports featuring temperature and precipitation anomalies, trendlines, and station maps. It uses SQLite for structured data caching and Plotly for charts.
 
 ## Example
 
