@@ -75,7 +75,6 @@ def main(
         daily_df,
         stations_df,
         location,
-        coords,
         radius,
         trend,
         shade_deviation,

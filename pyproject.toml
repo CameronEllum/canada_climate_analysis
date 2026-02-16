@@ -24,3 +24,8 @@ select = ["I", "E", "F"]
 
 [tool.ruff.lint.isort]
 force-single-line = true
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

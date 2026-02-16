@@ -51,24 +51,45 @@ def _calculate_monthly_stats(
 
 
 def _add_anomaly_columns(stats: pl.DataFrame) -> pl.DataFrame:
-    """Add anomaly and percentage anomaly columns to stats."""
+    """Add anomaly column to monthly statistics.
+
+    Trend Calculation Methodology:
+    ==============================
+    1. Input: stats DataFrame contains yearly averages for a specific month
+       - Each row represents one year's data for that month
+       - 'avg' column = mean of all station observations for that month/year
+
+    2. Linear Trend Calculation:
+       - Fits a linear regression line through the yearly averages
+       - Formula: trend(year) = slope * year + intercept
+       - This represents the long-term climate trend for this specific month
+
+    3. Anomaly Calculation:
+       - Anomaly = actual yearly average - trend value for that year
+       - Positive anomaly = warmer/wetter than trend
+       - Negative anomaly = cooler/drier than trend
+
+    Example for January:
+    - 1950 January avg = -5.2°C, trend = -5.0°C → anomaly = -0.2°C
+    - 2020 January avg = -3.1°C, trend = -4.0°C → anomaly = +0.9°C
+    """
     lt_mean = stats["avg"].mean()
     x_vals = [float(xi) for xi in stats["year"].to_list()]
     y_vals = stats["avg"].to_list()
     trend_y = calculate_trendline(x_vals, y_vals)
 
     if trend_y:
+        # Use linear trend as baseline for anomaly calculation
         series_trend = pl.Series(name="trend", values=trend_y)
         return stats.with_columns(
             trend=series_trend,
             anomaly=pl.col("avg") - series_trend,
-            anom_pct=100 * (pl.col("avg") - series_trend) / series_trend,
         )
     else:
+        # Fallback to long-term mean if trend calculation fails
         return stats.with_columns(
             trend=pl.lit(lt_mean),
             anomaly=pl.col("avg") - lt_mean,
-            anom_pct=100 * (pl.col("avg") - lt_mean) / lt_mean,
         )
 
 
@@ -149,7 +170,6 @@ def create_temperature_plot(
                     "min",
                     "max",
                     "anomaly",
-                    "anom_pct",
                     "median",
                     "trend",
                 ]
@@ -213,29 +233,26 @@ def create_temperature_plot(
                     colorscale=m_cscale,
                     cmid=0,
                     line=dict(width=1, color="white"),
-                    colorbar=(
-                        dict(
-                            title=dict(text="Anomaly (°C)", side="top"),
-                            orientation="h",
-                            x=0.5,
-                            y=-0.18,
-                            yanchor="top",
-                            xanchor="center",
-                            thickness=15,
-                            len=0.5,
-                        )
-                        if (m_idx == 1 and show_anomaly)
-                        else None
-                    ),
+                    colorbar=dict(
+                        title=dict(text="Anomaly (°C)", side="top"),
+                        orientation="h",
+                        x=0.5,
+                        y=-0.18,
+                        yanchor="top",
+                        xanchor="center",
+                        thickness=15,
+                        len=0.5,
+                    )
+                    if show_anomaly
+                    else None,
                 ),
                 line=dict(width=1, color="rgba(0,0,0,0.2)"),
                 showlegend=(m_idx == 1),
                 hovertemplate=(
                     "<b>Year: %{x}</b><br>Mean: %{y:.1f}°C<br>"
-                    "Median: %{customdata[6]:.1f}°C<br>"
-                    "Trend Mean: %{customdata[7]:.1f}°C<br>"
-                    "Anomaly: %{customdata[4]:.1f}°C "
-                    "(%{customdata[5]:.1f}%)<br>"
+                    "Median: %{customdata[5]:.1f}°C<br>"
+                    "Trend Mean: %{customdata[6]:.1f}°C<br>"
+                    "Anomaly: %{customdata[4]:.1f}°C<br>"
                     "Minimum: %{customdata[2]:.1f}°C<br>"
                     "Maximum: %{customdata[3]:.1f}°C<br>"
                     "25th Percentile: %{customdata[0]:.1f}°C<br>"
@@ -290,7 +307,6 @@ def create_precipitation_plot(
                     "min",
                     "max",
                     "anomaly",
-                    "anom_pct",
                     "median",
                     "trend",
                 ]
@@ -329,29 +345,26 @@ def create_precipitation_plot(
                     colorscale=m_cscale,
                     cmid=0,
                     line=dict(width=1, color="white"),
-                    colorbar=(
-                        dict(
-                            title=dict(text="Anomaly (mm)", side="top"),
-                            orientation="h",
-                            x=0.5,
-                            y=-0.18,
-                            yanchor="top",
-                            xanchor="center",
-                            thickness=15,
-                            len=0.5,
-                        )
-                        if (m_idx == 1 and show_anomaly)
-                        else None
-                    ),
+                    colorbar=dict(
+                        title=dict(text="Anomaly (mm)", side="top"),
+                        orientation="h",
+                        x=0.5,
+                        y=-0.18,
+                        yanchor="top",
+                        xanchor="center",
+                        thickness=15,
+                        len=0.5,
+                    )
+                    if show_anomaly
+                    else None,
                 ),
                 line=dict(width=1, color="rgba(0,0,0,0.2)"),
                 showlegend=(m_idx == 1),
                 hovertemplate=(
                     "<b>Year: %{x}</b><br>Total: %{y:.1f} mm<br>"
-                    "Median: %{customdata[6]:.1f} mm<br>"
-                    "Trend Mean: %{customdata[7]:.1f} mm<br>"
-                    "Anomaly: %{customdata[4]:.1f} mm "
-                    "(%{customdata[5]:.1f}%)<br>"
+                    "Median: %{customdata[5]:.1f} mm<br>"
+                    "Trend Mean: %{customdata[6]:.1f} mm<br>"
+                    "Anomaly: %{customdata[4]:.1f} mm<br>"
                     "Minimum: %{customdata[2]:.1f} mm<br>"
                     "Maximum: %{customdata[3]:.1f} mm<br>"
                     "25th Percentile: %{customdata[0]:.1f} mm<br>"
