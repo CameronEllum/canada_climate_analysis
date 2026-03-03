@@ -7,6 +7,13 @@ from pathlib import Path
 
 import jinja2
 import polars as pl
+from constants import MONTH_LABELS
+from constants import SEASON_LABELS
+from constants import YEAR_LABELS
+from report_plots import calculate_trendline
+from report_plots import create_precipitation_plot
+from report_plots import create_station_map
+from report_plots import create_temperature_plot
 
 
 def aggregate_data(
@@ -56,6 +63,9 @@ def aggregate_data(
     )
 
     # Ensure hover-required percentiles are included
+    if percentiles is None:
+        percentiles = [50]
+
     required = {0, 25, 50, 75, 100}
     p_set = sorted(
         list(
@@ -70,16 +80,18 @@ def aggregate_data(
         pl.col(target_col).median().alias("temp_median"),
         pl.col(min_col).min().alias("temp_min_abs"),
         pl.col(max_col).max().alias("temp_max_abs"),
-        (pl.col("precip").sum() / pl.col("station_id").n_unique()).alias(
+        (pl.col("precip_total").sum() / pl.col("station_id").n_unique()).alias(
             "precip_total"
         ),
-        pl.col("precip").median().alias("precip_median"),
+        pl.col("precip_total").median().alias("precip_median"),
     ]
 
     for p in p_set:
         q = p / 100
         agg_exprs.append(pl.col(target_col).quantile(q).alias(f"temp_p{p}"))
-        agg_exprs.append(pl.col("precip").quantile(q).alias(f"precip_p{p}"))
+        agg_exprs.append(
+            pl.col("precip_total").quantile(q).alias(f"precip_p{p}")
+        )
 
     return df.group_by(["requested_location", "year", "period_idx"]).agg(
         agg_exprs
@@ -121,6 +133,83 @@ def render_template(
     )
 
 
+def calculate_anomalies(stats_df: pl.DataFrame) -> pl.DataFrame:
+    """Add anomaly and trend columns to period statistics."""
+    avg_series = stats_df["avg"]
+    lt_mean = avg_series.mean()
+    if lt_mean is None:
+        lt_mean = 0.0
+
+    x_vals = [float(xi) for xi in stats_df["year"].to_list()]
+    y_vals = avg_series.to_list()
+    # Filter out None values for trend calculation
+    valid_y = [y for y in y_vals if y is not None]
+
+    trend_y = None
+    if len(valid_y) >= 2:
+        trend_y = calculate_trendline(x_vals, y_vals)
+
+    if trend_y:
+        series_trend = pl.Series(name="trend", values=trend_y)
+        return stats_df.with_columns(
+            trend=series_trend,
+            anomaly=pl.col("avg") - series_trend,
+        )
+    else:
+        return stats_df.with_columns(
+            trend=pl.lit(lt_mean),
+            anomaly=pl.col("avg") - lt_mean,
+        )
+
+
+def _calculate_period_stats(
+    merged_df: pl.DataFrame,
+    period_idx: int,
+    metric: str,
+    location: str | None = None,
+) -> pl.DataFrame | None:
+    """Calculate statistics for a specific period (month/season/year)."""
+
+    p_df = merged_df.filter(pl.col("period_idx") == period_idx)
+
+    if location:
+        p_df = p_df.filter(pl.col("requested_location") == location)
+
+    p_df = p_df.sort("year")
+
+    if p_df.is_empty():
+        return None
+
+    if metric == "temperature":
+        avg_col = "temp_mean"
+        median_col = "temp_median"
+        min_col = "temp_min_abs"
+        max_col = "temp_max_abs"
+        prefix = "temp_p"
+    else:  # precipitation
+        avg_col = "precip_total"
+        median_col = "precip_median"
+        min_col = "precip_total"
+        max_col = "precip_total"
+        prefix = "precip_p"
+
+    p_cols = [c for c in p_df.columns if c.startswith(prefix)]
+
+    agg_exprs = [
+        pl.col(avg_col).mean().alias("avg"),
+        pl.col(median_col).mean().alias("median"),
+        pl.col(min_col).min().alias("min"),
+        pl.col(max_col).max().alias("max"),
+    ]
+
+    for c in p_cols:
+        agg_exprs.append(pl.col(c).mean().alias(c.split("_")[-1]))
+
+    stats_df = p_df.group_by("year").agg(agg_exprs).sort("year")
+
+    return calculate_anomalies(stats_df)
+
+
 def generate_report(
     daily_df: pl.DataFrame,
     stations_df: pl.DataFrame,
@@ -135,10 +224,6 @@ def generate_report(
     ribbon_percentiles: list[int] | None = None,
 ) -> str:
     """Aggregate daily data to period and generate HTML report."""
-    # Import here to avoid circular dependency
-    from report_plots import create_precipitation_plot
-    from report_plots import create_station_map
-    from report_plots import create_temperature_plot
 
     if ribbon_percentiles is None:
         ribbon_percentiles = list(range(0, 101, 5))
@@ -153,33 +238,32 @@ def generate_report(
     )
 
     if period == "monthly":
-        period_labels = [
-            "January",
-            "February",
-            "March",
-            "April",
-            "May",
-            "June",
-            "July",
-            "August",
-            "September",
-            "October",
-            "November",
-            "December",
-        ]
+        period_labels = MONTH_LABELS
     elif period == "seasonally":
-        period_labels = [
-            "Winter (DJF)",
-            "Spring (MAM)",
-            "Summer (JJA)",
-            "Fall (SON)",
-        ]
+        period_labels = SEASON_LABELS
     else:  # yearly
-        period_labels = ["Annual"]
+        period_labels = YEAR_LABELS
 
-    # Create temperature plot
+    temp_stats_map = {}
+    precip_stats_map = {}
+
+    for p_idx in range(1, len(period_labels) + 1):
+        for loc in locations:
+            t_stats = _calculate_period_stats(
+                merged_df, p_idx, "temperature", location=loc
+            )
+            if t_stats is not None:
+                temp_stats_map[(p_idx, loc)] = t_stats
+
+            p_stats = _calculate_period_stats(
+                merged_df, p_idx, "precipitation", location=loc
+            )
+            if p_stats is not None:
+                precip_stats_map[(p_idx, loc)] = p_stats
+
+    # Create plots with pre-calculated data
     fig_temp = create_temperature_plot(
-        merged_df,
+        temp_stats_map,
         period_labels,
         show_trend,
         show_median,
@@ -191,9 +275,8 @@ def generate_report(
         percentiles=ribbon_percentiles,
     )
 
-    # Create precipitation plot
     fig_precip = create_precipitation_plot(
-        merged_df,
+        precip_stats_map,
         period_labels,
         show_trend,
         show_anomaly,
@@ -201,7 +284,6 @@ def generate_report(
         period_type=period,
     )
 
-    # Create station map
     fig_map = create_station_map(stations_df, daily_df)
 
     html_sections = [
@@ -224,14 +306,10 @@ def generate_report(
         ),
     ]
 
-    # Each location adds:
-    # Temperature: (2 * num_ribbons) traces, 1 trend, 1 median, 1 obs
-    # Precipitation: 1 trend, 1 median, 1 obs
     ribbon_pairs = [p for p in ribbon_percentiles if p < 50]
-    traces_per_loc_temp = 2 * len(ribbon_pairs) + 1 + 1 + 1
+    traces_per_loc_temp = 2 * len(ribbon_pairs) + 3  # obs, trend, median
     traces_per_month_temp = traces_per_loc_temp * len(locations)
-
-    traces_per_loc_precip = 2
+    traces_per_loc_precip = 2  # obs, trend
     traces_per_month_precip = traces_per_loc_precip * len(locations)
 
     return render_template(

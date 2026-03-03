@@ -56,7 +56,7 @@ def migrate(source_path: str, target_path: str) -> None:
         sqlite3.connect(source_path) as conn_old,
         sqlite3.connect(target_path) as conn_new,
     ):
-        # 1. Initialize New Schema
+        # Initialize New Schema
         logger.info("Initializing new schema...")
         conn_new.execute("""
             CREATE TABLE stations (
@@ -90,7 +90,7 @@ def migrate(source_path: str, target_path: str) -> None:
             )
         """)
 
-        # 2. Migrate Stations
+        # Migrate Stations
         logger.info("Migrating stations...")
         cursor_old = conn_old.cursor()
         cursor_old.execute("SELECT id, name, latitude, longitude FROM stations")
@@ -107,7 +107,7 @@ def migrate(source_path: str, target_path: str) -> None:
         cursor_new.execute("SELECT station_id, key FROM stations")
         id_to_key = dict(cursor_new.fetchall())
 
-        # 3. Migrate Daily Data
+        # Migrate Daily Data
         logger.info("Migrating daily observations...")
         cursor_old.execute(
             "SELECT station_id, date, temp_mean, temp_min, temp_max, precip FROM daily_data"
@@ -141,7 +141,7 @@ def migrate(source_path: str, target_path: str) -> None:
                 new_rows,
             )
 
-        # 4. Migrate Station Requests
+        # Migrate Station Requests
         logger.info("Migrating request logs...")
         cursor_old.execute(
             "SELECT station_id, start_date, end_date, status, timestamp FROM station_requests"

@@ -58,69 +58,6 @@ def create_modern_theme(fig: go.Figure) -> None:
     )
 
 
-def _calculate_period_stats(
-    merged_df: pl.DataFrame, period_idx: int, metric: str, location: str = None
-) -> pl.DataFrame | None:
-    """Calculate statistics for a specific period (month/season/year)."""
-    p_df = merged_df.filter(pl.col("period_idx") == period_idx)
-
-    if location:
-        p_df = p_df.filter(pl.col("requested_location") == location)
-
-    p_df = p_df.sort("year")
-
-    if p_df.is_empty():
-        return None
-
-    prefix = "temp_" if metric == "temperature" else "precip_"
-    p_cols = [c for c in p_df.columns if c.startswith(f"{prefix}p")]
-
-    agg_exprs = []
-    if metric == "temperature":
-        agg_exprs.extend(
-            [
-                pl.col("temp_mean").mean().alias("avg"),
-                pl.col("temp_median").mean().alias("median"),
-                pl.col("temp_min_abs").min().alias("min"),
-                pl.col("temp_max_abs").max().alias("max"),
-            ]
-        )
-    else:  # precipitation
-        agg_exprs.extend(
-            [
-                pl.col("precip_total").mean().alias("avg"),
-                pl.col("precip_median").mean().alias("median"),
-                pl.col("precip_total").min().alias("min"),
-                pl.col("precip_total").max().alias("max"),
-            ]
-        )
-
-    for c in p_cols:
-        agg_exprs.append(pl.col(c).mean().alias(c.split("_")[-1]))
-
-    return p_df.group_by("year").agg(agg_exprs).sort("year")
-
-
-def _add_anomaly_columns(stats: pl.DataFrame) -> pl.DataFrame:
-    """Add anomaly column to period statistics."""
-    lt_mean = stats["avg"].mean()
-    x_vals = [float(xi) for xi in stats["year"].to_list()]
-    y_vals = stats["avg"].to_list()
-    trend_y = calculate_trendline(x_vals, y_vals)
-
-    if trend_y:
-        series_trend = pl.Series(name="trend", values=trend_y)
-        return stats.with_columns(
-            trend=series_trend,
-            anomaly=pl.col("avg") - series_trend,
-        )
-    else:
-        return stats.with_columns(
-            trend=pl.lit(lt_mean),
-            anomaly=pl.col("avg") - lt_mean,
-        )
-
-
 # Standard deviation shading removed as per request
 
 
@@ -128,12 +65,9 @@ def _create_trend_trace(
     x: list, y: list, p_idx: int, show_trend: bool
 ) -> go.Scatter:
     """Create trendline trace."""
-    x_vals = [float(xi) for xi in x]
-    trend_y = calculate_trendline(x_vals, y) if x and y else None
-
     return go.Scatter(
         x=x,
-        y=trend_y if trend_y else [],
+        y=y,
         mode="lines",
         name="Linear Trend",
         visible=(p_idx == 1 and show_trend),
@@ -160,7 +94,7 @@ def _create_median_trace(
 
 
 def create_temperature_plot(
-    merged_df: pl.DataFrame,
+    stats_map: dict[tuple[int, str], pl.DataFrame],
     period_labels: list[str],
     show_trend: bool,
     show_median: bool,
@@ -171,7 +105,7 @@ def create_temperature_plot(
     period_type: str = "monthly",
     percentiles: list[int] | None = None,
 ) -> go.Figure:
-    """Create temperature analysis plot."""
+    """Create temperature analysis plot using pre-calculated stats."""
     fig = go.Figure()
 
     if locations is None:
@@ -205,30 +139,21 @@ def create_temperature_plot(
 
     for p_idx in range(1, len(period_labels) + 1):
         for i, loc in enumerate(locations):
-            stats_df = _calculate_period_stats(
-                merged_df, p_idx, "temperature", location=loc
-            )
+            stats_df = stats_map.get((p_idx, loc))
+            if stats_df is None:
+                continue
 
-            if stats_df is not None:
-                stats_df = _add_anomaly_columns(stats_df)
-
-            x = stats_df["year"].to_list() if stats_df is not None else []
-            y = stats_df["avg"].to_list() if stats_df is not None else []
-            anom_list = (
-                stats_df["anomaly"].to_list() if stats_df is not None else []
-            )
-            c_data = (
-                stats_df[
-                    ["p25", "p75", "min", "max", "anomaly", "median", "trend"]
-                ].rows()
-                if stats_df is not None
-                else []
-            )
+            x = stats_df["year"].to_list()
+            y = stats_df["avg"].to_list()
+            anom_list = stats_df["anomaly"].to_list()
+            c_data = stats_df[
+                ["p25", "p75", "min", "max", "anomaly", "median", "trend"]
+            ].rows()
 
             color = colors[i % len(colors)]
             loc_prefix = f"{loc.split(',')[0]} - " if len(locations) > 1 else ""
 
-            # Shading color logic (retained for ribbons if needed)
+            # Shading color logic
             shading_color = color.replace("#", "")
             r, g, b = (
                 int(shading_color[:2], 16),
@@ -247,12 +172,8 @@ def create_temperature_plot(
             for low_p_val, high_p_val in sorted(ribbon_pairs, reverse=False):
                 low_p = f"p{low_p_val}"
                 high_p = f"p{high_p_val}"
-                y_high = (
-                    stats_df[high_p].to_list() if stats_df is not None else []
-                )
-                y_low = (
-                    stats_df[low_p].to_list() if stats_df is not None else []
-                )
+                y_high = stats_df[high_p].to_list()
+                y_low = stats_df[low_p].to_list()
 
                 # Ribbon boundary (Top)
                 fig.add_trace(
@@ -269,7 +190,6 @@ def create_temperature_plot(
                 )
 
                 # Ribbon fill (Bottom)
-                # Outer label for legend
                 outer_low, outer_high = ribbon_pairs[0]
                 label = f"{loc_prefix}Percentiles"
                 fig.add_trace(
@@ -290,14 +210,19 @@ def create_temperature_plot(
 
             m_trace = _create_median_trace(
                 x,
-                stats_df["median"].to_list() if stats_df is not None else [],
+                stats_df["median"].to_list(),
                 p_idx,
                 show_median,
             )
             m_trace.name = f"{loc_prefix}{m_trace.name}"
             fig.add_trace(m_trace)
 
-            t_trace = _create_trend_trace(x, y, p_idx, show_trend)
+            t_trace = _create_trend_trace(
+                x,
+                stats_df["trend"].to_list(),
+                p_idx,
+                show_trend,
+            )
             t_trace.name = f"{loc_prefix}{t_trace.name}"
             t_trace.line.color = color
             if len(locations) > 1:
@@ -367,14 +292,14 @@ def create_temperature_plot(
 
 
 def create_precipitation_plot(
-    merged_df: pl.DataFrame,
+    stats_map: dict[tuple[int, str], pl.DataFrame],
     period_labels: list[str],
     show_trend: bool,
     show_anomaly: bool,
     locations: list[str] = None,
     period_type: str = "monthly",
 ) -> go.Figure:
-    """Create precipitation analysis plot."""
+    """Create precipitation analysis plot using pre-calculated stats."""
     fig = go.Figure()
 
     if locations is None:
@@ -400,30 +325,26 @@ def create_precipitation_plot(
 
     for p_idx in range(1, len(period_labels) + 1):
         for i, loc in enumerate(locations):
-            stats_df = _calculate_period_stats(
-                merged_df, p_idx, "precipitation", location=loc
-            )
+            stats_df = stats_map.get((p_idx, loc))
+            if stats_df is None:
+                continue
 
-            if stats_df is not None:
-                stats_df = _add_anomaly_columns(stats_df)
-
-            x = stats_df["year"].to_list() if stats_df is not None else []
-            y = stats_df["avg"].to_list() if stats_df is not None else []
-            anom_list = (
-                stats_df["anomaly"].to_list() if stats_df is not None else []
-            )
-            c_data = (
-                stats_df[
-                    ["p25", "p75", "min", "max", "anomaly", "median", "trend"]
-                ].rows()
-                if stats_df is not None
-                else []
-            )
+            x = stats_df["year"].to_list()
+            y = stats_df["avg"].to_list()
+            anom_list = stats_df["anomaly"].to_list()
+            c_data = stats_df[
+                ["p25", "p75", "min", "max", "anomaly", "median", "trend"]
+            ].rows()
 
             color = colors[i % len(colors)]
             loc_prefix = f"{loc.split(',')[0]} - " if len(locations) > 1 else ""
 
-            t_trace = _create_trend_trace(x, y, p_idx, show_trend)
+            t_trace = _create_trend_trace(
+                x,
+                stats_df["trend"].to_list(),
+                p_idx,
+                show_trend,
+            )
             t_trace.name = f"{loc_prefix}{t_trace.name}"
             t_trace.line.color = color
             if len(locations) > 1:

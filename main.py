@@ -2,203 +2,129 @@
 Climate analysis application with SQLite and HTTP caching.
 Downloads daily climate data from MSC GeoMet and generates clean reports.
 """
-
 from __future__ import annotations
 
-import datetime
 import logging
+import os
 import sys
-from pathlib import Path
+from typing import Annotated
+from typing import Optional
 
-import click
-import polars as pl
+import typer
 
-from climate_cache import ClimateCache
-from msc_client import MSCClient
-from report_generator import generate_report
+from climate_app import ClimateApp
+from config import AggregateMode
+from config import ProcessingConfig
 
 # Logging configuration
+DEFAULT_LOG_LEVEL = "INFO"
+log_level = os.environ.get("LOG_LEVEL", DEFAULT_LOG_LEVEL).upper()
+
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
+    level=log_level,
+    format="%(levelname)s - %(message)s",
     stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
 
+app = typer.Typer(help="Climate analysis application.")
 
-@click.command()
-@click.option("--location", required=True, multiple=True, help="Location name")
-@click.option("--radius", default=100.0, help="Radius (km)")
-@click.option("--start-year", default=1900, type=int, help="Start year")
-@click.option("--end-year", default=None, type=int, help="End year")
-@click.option("--trend/--no-trend", default=True, help="Show trendlines")
-@click.option("--median/--no-median", default=False, help="Show median line")
-@click.option(
-    "--show-anomaly/--no-anomaly",
-    default=True,
-    help="Show anomaly plot (default: True)",
-)
-@click.option(
-    "--max/--no-max",
-    "max_temp",
-    default=False,
-    help="Use maximum daily temperature (default: False)",
-)
-@click.option(
-    "--min/--no-min",
-    "min_temp",
-    default=False,
-    help="Use minimum daily temperature (default: False)",
-)
-@click.option(
-    "--monthly",
-    "period",
-    flag_value="monthly",
-    default=True,
-    help="Aggregate by month (default)",
-)
-@click.option(
-    "--seasonally",
-    "period",
-    flag_value="seasonally",
-    help="Aggregate by season",
-)
-@click.option(
-    "--yearly", "period", flag_value="yearly", help="Aggregate by year"
-)
-@click.option(
-    "--cache",
-    "cache_path",
-    default="climate_cache.sq3",
-    help="Path to SQLite cache (default: climate_cache.sq3)",
-)
-@click.option(
-    "--cache-requests/--no-cache-requests",
-    default=False,
-    help="Enable HTTP requests caching (default: False)",
-)
-@click.option(
-    "--percentiles",
-    "percentiles_str",
-    default="0,5,10,15,20,25,30,35,40,45,50",
-    help="Comma-separated percentile integers for ribbons (default: 0,5,...,50)",
-)
+# CLI Option Aliases to avoid "Vertical Wall"
+LocationOpt = Annotated[list[str], typer.Option("--location", help="Location name")]
+RadiusOpt = Annotated[float, typer.Option(help="Radius (km)")]
+StartYearOpt = Annotated[int, typer.Option(help="Start year")]
+EndYearOpt = Annotated[Optional[int], typer.Option(help="End year")]
+TrendOpt = Annotated[bool, typer.Option(help="Show trendlines")]
+MedianOpt = Annotated[bool, typer.Option(help="Show median line")]
+AnomalyOpt = Annotated[bool, typer.Option(help="Show anomaly plot (default: True)")]
+MaxTempOpt = Annotated[
+    bool,
+    typer.Option(
+        "--max/--no-max", help="Use maximum daily temperature (default: False)"
+    ),
+]
+MinTempOpt = Annotated[
+    bool,
+    typer.Option(
+        "--min/--no-min", help="Use minimum daily temperature (default: False)"
+    ),
+]
+AggregateOpt = Annotated[
+    AggregateMode,
+    typer.Option(
+        "--mode",
+        case_sensitive=False,
+        help="Aggregation mode (monthly, seasonally, or yearly)",
+    ),
+]
+CachePathOpt = Annotated[
+    str, typer.Option("--cache", help="Path to SQLite cache (default: climate_cache.sq3)")
+]
+CacheRequestsOpt = Annotated[
+    bool,
+    typer.Option(
+        "--cache-requests/--no-cache-requests",
+        help="Enable HTTP requests caching (default: False)",
+    ),
+]
+PercentilesOpt = Annotated[
+    list[int],
+    typer.Option(
+        "--percentiles",
+        help="Percentile integers for ribbons (specify multiple times, e.g., --percentiles 10 --percentiles 20)",
+    ),
+]
+CacheReportOpt = Annotated[
+    bool, typer.Option("--cache-report", help="Generate a report of the data in cache.")
+]
+
+
+@app.command()
 def main(
-    location: tuple[str, ...],
-    radius: float,
-    start_year: int,
-    end_year: int,
-    trend: bool,
-    median: bool,
-    show_anomaly: bool,
-    max_temp: bool,
-    min_temp: bool,
-    period: str,
-    cache_path: str,
-    cache_requests: bool,
-    percentiles_str: str,
+    location: LocationOpt = [],
+    radius: RadiusOpt = 100.0,
+    start_year: StartYearOpt = 1900,
+    end_year: EndYearOpt = None,
+    trend: TrendOpt = True,
+    median: MedianOpt = False,
+    show_anomaly: AnomalyOpt = True,
+    max_temp: MaxTempOpt = False,
+    min_temp: MinTempOpt = False,
+    mode: AggregateOpt = AggregateMode.monthly,
+    cache_path: CachePathOpt = "climate_cache.sq3",
+    cache_requests: CacheRequestsOpt = False,
+    percentiles: PercentilesOpt = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50],
+    cache_report: CacheReportOpt = False,
 ) -> None:
-    """Generate climate analysis report for multiple locations."""
-    if end_year is None:
-        end_year = datetime.datetime.now().year
+    """Climate Analysis Tool: Download data and generate reports."""
+    climate_app = ClimateApp(cache_path, cache_requests=cache_requests)
 
-    cache = ClimateCache(cache_path)
-    client = MSCClient(cache, cache_requests=cache_requests)
+    if cache_report:
+        climate_app.generate_cache_report()
+        return
 
-    all_stations_dfs = []
-
-    normalized_locations = []
-    for loc in location:
-        # Normalize: ensure it ends with ",Canada"
-        norm_loc = loc if loc.endswith(",Canada") else f"{loc},Canada"
-        normalized_locations.append(norm_loc)
-
-    # Deduplicate while preserving order
-    normalized_locations = list(dict.fromkeys(normalized_locations))
-
-    for norm_loc in normalized_locations:
-        coords = client.get_coordinates(norm_loc)
-        if not coords:
-            logger.warning(f"Failed to find {norm_loc}, skipping...")
-            continue
-
-        lat, lon = coords
-        logger.info(f"Location: {norm_loc} ({lat}, {lon})")
-
-        stations_df = client.find_stations_near(lat, lon, radius)
-        if not stations_df.is_empty():
-            # Add location tag to stations for report labeling
-            stations_df = stations_df.with_columns(
-                pl.lit(norm_loc).alias("requested_location")
-            )
-            all_stations_dfs.append(stations_df)
-
-    if not all_stations_dfs:
-        logger.error("No stations found for any specified location.")
-        sys.exit(1)
-
-    # Combine and unique stations
-    combined_stations_df = pl.concat(all_stations_dfs).unique(subset=["id"])
-
-    daily_df = client.fetch_daily_data(
-        combined_stations_df["id"].to_list(), start_year, end_year
+    # Process and validate args into a config object
+    config = ProcessingConfig.from_args(
+        location=location,
+        radius=radius,
+        start_year=start_year,
+        end_year=end_year,
+        trend=trend,
+        median=median,
+        show_anomaly=show_anomaly,
+        max_temp=max_temp,
+        min_temp=min_temp,
+        mode=mode,
+        percentiles=percentiles,
     )
-    if daily_df.is_empty():
-        logger.error("No data found.")
-        sys.exit(1)
 
-    # Determine if anomaly coloring should be shown
-    # Respect the user's explicit choice via --show-anomaly/--no-anomaly
-
-    if len(normalized_locations) > 1 and show_anomaly:
-        logger.warning(
-            "Anomaly plots are disabled when multiple locations are requested."
-        )
-        show_anomaly = False
-
-    # Parse percentiles
     try:
-        percentiles = [int(p.strip()) for p in percentiles_str.split(",")]
-    except ValueError:
-        logger.error(
-            "Invalid percentiles format. Use comma-separated integers."
-        )
-        sys.exit(1)
-
-    report = generate_report(
-        daily_df,
-        combined_stations_df,
-        normalized_locations,
-        radius,
-        trend,
-        median,
-        show_anomaly,
-        max_temp,
-        min_temp,
-        period=period,
-        ribbon_percentiles=percentiles,
-    )
-
-    # Create reports directory if it doesn't exist
-    reports_dir = Path("reports")
-    reports_dir.mkdir(exist_ok=True)
-
-    # Determine year range for filename
-    effective_end_year = end_year or daily_df["year"].max()
-    year_range = f"{start_year}-{effective_end_year}"
-
-    # Filename based on period, year range, and location(s)
-    loc_part = normalized_locations[0].split(",")[0].lower().replace(" ", "_")
-    if len(normalized_locations) > 1:
-        loc_part += "_and_others"
-
-    fname = f"climate_report_{period}_{year_range}_{loc_part}.html"
-    fpath = reports_dir / fname
-
-    with open(fpath, "w", encoding="utf-8") as f:
-        f.write(report)
-    logger.info(f"Report: {fpath}")
+        fpath = climate_app.run_analysis(config)
+        logger.info(f"Report generated: {fpath}")
+    except RuntimeError as e:
+        logger.error(str(e))
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":
-    main()
+    app()

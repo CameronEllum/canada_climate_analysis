@@ -10,8 +10,8 @@ These tests verify that:
 import polars as pl
 import pytest
 
-from report_generator import calculate_trendline
-from report_plots import _add_anomaly_columns
+from report_generator import calculate_anomalies
+from report_plots import calculate_trendline
 
 
 class TestTrendlineCalculation:
@@ -121,7 +121,7 @@ class TestAnomalyCalculation:
             }
         )
 
-        result = _add_anomaly_columns(stats)
+        result = calculate_anomalies(stats)
 
         assert "anomaly" in result.columns
         assert "trend" in result.columns
@@ -138,7 +138,7 @@ class TestAnomalyCalculation:
             }
         )
 
-        result = _add_anomaly_columns(stats)
+        result = calculate_anomalies(stats)
 
         assert "anomaly" in result.columns
         # Calculate expected trend manually: y ≈ 9 + 1x (approximately)
@@ -157,7 +157,7 @@ class TestAnomalyCalculation:
             }
         )
 
-        result = _add_anomaly_columns(stats)
+        result = calculate_anomalies(stats)
 
         assert "trend" in result.columns
         assert "anomaly" in result.columns
@@ -172,7 +172,7 @@ class TestAnomalyCalculation:
             }
         )
 
-        result = _add_anomaly_columns(stats)
+        result = calculate_anomalies(stats)
 
         # Should fall back to long-term mean
         assert "anomaly" in result.columns
@@ -188,7 +188,7 @@ class TestAnomalyCalculation:
             }
         )
 
-        result = _add_anomaly_columns(stats)
+        result = calculate_anomalies(stats)
 
         # Verify trend exists and is increasing (warming)
         trends = result["trend"].to_list()
@@ -207,7 +207,7 @@ class TestAnomalyCalculation:
             }
         )
 
-        result = _add_anomaly_columns(stats)
+        result = calculate_anomalies(stats)
 
         # Verify all required columns
         assert "trend" in result.columns
@@ -235,7 +235,7 @@ class TestTrendMethodology:
             }
         )
 
-        result = _add_anomaly_columns(stats)
+        result = calculate_anomalies(stats)
 
         # Trend should be linear through these points
         trends = result["trend"].to_list()
@@ -259,7 +259,7 @@ class TestTrendMethodology:
             }
         )
 
-        result = _add_anomaly_columns(stats)
+        result = calculate_anomalies(stats)
 
         # Manually verify: anomaly = avg - trend
         for i in range(len(result)):
